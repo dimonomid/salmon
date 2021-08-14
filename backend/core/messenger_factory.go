@@ -4,8 +4,10 @@ import (
 	"fmt"
 
 	"github.com/dimonomid/salmon"
+	"github.com/dimonomid/salmon/backend/itemsboard"
 	"github.com/dimonomid/salmon/backend/messengers"
 	"github.com/dimonomid/salmon/backend/messengers/filelogger"
+	"github.com/dimonomid/salmon/backend/messengers/webserver"
 )
 
 // messengerWCtx contains the messenger and its context (e.g. channels for that
@@ -38,10 +40,26 @@ func createMessenger(
 		return c, nil
 	}
 
+	if cfg.Webserver != nil {
+		if ret != nil {
+			return nil, fmt.Errorf("config contains more than a single messenger")
+		}
+
+		c, err := webserver.New(webserver.Params{
+			Common: commonParams,
+			Config: *cfg.Webserver,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("creating webserver: %w", err)
+		}
+
+		return c, nil
+	}
+
 	return nil, fmt.Errorf("no valid messenger configuration")
 }
 
-func createMessengers(cfgs []Messenger) ([]messengerWCtx, error) {
+func createMessengers(cfgs []Messenger, ib *itemsboard.ItemsBoard) ([]messengerWCtx, error) {
 	ret := make([]messengerWCtx, 0, len(cfgs))
 
 	for i, cfg := range cfgs {
@@ -51,6 +69,7 @@ func createMessengers(cfgs []Messenger) ([]messengerWCtx, error) {
 		}
 
 		commonParams := messengers.Params{
+			ItemsBoard:        ib,
 			NotificationsChan: mwCtx.notificationsChan,
 			TornDown:          mwCtx.tornDown,
 		}

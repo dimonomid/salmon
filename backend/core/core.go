@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/dimonomid/salmon/backend/collectors"
+	"github.com/dimonomid/salmon/backend/itemsboard"
 
 	"github.com/benbjohnson/clock"
 )
@@ -15,6 +16,8 @@ type Core struct {
 	colls      []collectors.Collector
 	messengers []messengerWCtx
 	updCh      chan *collectors.Update
+
+	ib *itemsboard.ItemsBoard
 
 	tracker *ItemStatesTracker
 
@@ -34,12 +37,14 @@ func NewCore(cfg Config, params Params) (*Core, error) {
 		UpdatesChan: updCh,
 	}
 
+	ib := itemsboard.New()
+
 	colls, err := createCollectors(cfg.Collectors, collParams)
 	if err != nil {
 		return nil, fmt.Errorf("creating collectors: %w", err)
 	}
 
-	messengers, err := createMessengers(cfg.Messengers)
+	messengers, err := createMessengers(cfg.Messengers, ib)
 	if err != nil {
 		return nil, fmt.Errorf("creating messengers: %w", err)
 	}
@@ -50,6 +55,8 @@ func NewCore(cfg Config, params Params) (*Core, error) {
 		colls:      colls,
 		messengers: messengers,
 		updCh:      updCh,
+
+		ib: ib,
 
 		tracker: NewItemStatesTracker(ItemStatesTrackerParams{
 			Clock: params.Clock,
@@ -109,6 +116,17 @@ func (c *Core) run() {
 			//}
 
 			//fmt.Printf("HEY incidents update: %s\n", string(d))
+
+			// We must update items board _before_ sending notifications to the
+			// messenger channels; this way, when messengers fan notifications out
+			// (e.g. webserver will fan those out to all websocket clients), they can
+			// be sure that if they first add a new output channel, then start the
+			// goroutine to read from this channel, and that goroutine first of all
+			// gets the current status from the ItemsBoard, then it's guaranteed that
+			// no updates can be missed. It's possible to get a redundant update
+			// instead, but that's ok.
+			c.ib.Set(notif.OngoingIncidents.Total)
+
 			for _, mwCtx := range c.messengers {
 				select {
 				case mwCtx.notificationsChan <- notif:

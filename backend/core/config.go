@@ -3,6 +3,7 @@ package core
 import (
 	"github.com/dimonomid/salmon/backend/collectors/systemd"
 	"github.com/dimonomid/salmon/backend/messengers/filelogger"
+	"github.com/dimonomid/salmon/backend/messengers/webserver"
 )
 
 type Config struct {
@@ -31,12 +32,7 @@ type Collector struct {
 
 type Messenger struct {
 	FileLogger *filelogger.Config `yaml:"fileLogger"`
-	WSServer   *MessengerWSServer `yaml:"wsServer"`
+	Webserver  *webserver.Config  `yaml:"webserver"`
 
 	// TODO: implement other messengers, like emailer, slacker, etc.
-}
-
-// TODO: move it to the wsserver package
-type MessengerWSServer struct {
-	ListenAddress string `yaml:"listenAddress"`
 }

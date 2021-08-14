@@ -10,6 +10,7 @@ import (
 	"github.com/dimonomid/salmon/backend/collectors/systemd"
 	"github.com/dimonomid/salmon/backend/core"
 	"github.com/dimonomid/salmon/backend/messengers/filelogger"
+	"github.com/dimonomid/salmon/backend/messengers/webserver"
 
 	"github.com/benbjohnson/clock"
 )
@@ -62,6 +63,11 @@ func main() {
 				core.Messenger{
 					FileLogger: &filelogger.Config{
 						FileName: "", // stdout
+					},
+				},
+				core.Messenger{
+					Webserver: &webserver.Config{
+						ListenAddress: ":8081",
 					},
 				},
 			},

@@ -1,6 +1,9 @@
 package messengers
 
-import "github.com/dimonomid/salmon"
+import (
+	"github.com/dimonomid/salmon"
+	"github.com/dimonomid/salmon/backend/itemsboard"
+)
 
 type Messenger interface {
 	// String returns a human-readable description of the messenger, might be
@@ -9,6 +12,11 @@ type Messenger interface {
 }
 
 type Params struct {
+	// ItemsBoard is the board from which the messenger can get current state of
+	// things. It's guaranteed to be updated _before_ notifications are delivered
+	// to NotificationsChan.
+	ItemsBoard *itemsboard.ItemsBoard
+
 	// NotificationsChan is where the Messenger will get notifications from. Once
 	// it's closed, the Messenger should tear itself down, and after that it
 	// closes the TornDown channel below.
