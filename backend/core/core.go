@@ -6,6 +6,7 @@ import (
 
 	"github.com/dimonomid/salmon/backend/collectors"
 	"github.com/dimonomid/salmon/backend/itemsboard"
+	"github.com/dimonomid/salmon/statestracker"
 
 	"github.com/benbjohnson/clock"
 )
@@ -19,7 +20,7 @@ type Core struct {
 
 	ib *itemsboard.ItemsBoard
 
-	tracker *ItemStatesTracker
+	tracker *statestracker.ItemStatesTracker
 
 	torndown chan struct{}
 }
@@ -58,7 +59,7 @@ func NewCore(cfg Config, params Params) (*Core, error) {
 
 		ib: ib,
 
-		tracker: NewItemStatesTracker(ItemStatesTrackerParams{
+		tracker: statestracker.NewItemStatesTracker(statestracker.ItemStatesTrackerParams{
 			Clock: params.Clock,
 		}),
 

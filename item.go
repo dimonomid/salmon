@@ -4,14 +4,14 @@ import "time"
 
 type Item struct {
 	// Key uniquely identifies the item.
-	Key ItemKey
+	Key ItemKey `json:"key"`
 
 	// State is the current item's state.
-	State ItemState
+	State ItemState `json:"state"`
 
 	// Comment, if not empty, contains a human-readable clarification on why
 	// State is what it is.
-	Comment string
+	Comment string `json:"comment"`
 }
 
 type ItemKey string
@@ -25,11 +25,11 @@ const (
 )
 
 type ItemWContext struct {
-	Item
+	Item `json:""`
 
 	// ChangeTime indicates when the item entered the ItemStateOK or
 	// non-ItemStateOK state.
-	ChangeTime time.Time
+	ChangeTime time.Time `json:"changeTime"`
 }
 
 func (item *Item) Equals(other *Item) bool {

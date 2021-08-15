@@ -3,7 +3,10 @@ package webserver
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"sync"
 
+	"github.com/dimonomid/salmon"
 	"github.com/dimonomid/salmon/backend/messengers"
 
 	"github.com/juju/errors"
@@ -15,6 +18,10 @@ type Webserver struct {
 	params Params
 
 	server *http.Server
+
+	subs      map[int]chan *salmon.Notification
+	nextSubID int
+	subsMtx   sync.Mutex
 }
 
 var _ messengers.Messenger = &Webserver{}
@@ -32,6 +39,8 @@ func New(params Params) (*Webserver, error) {
 
 	s := &Webserver{
 		params: params,
+
+		subs: make(map[int]chan *salmon.Notification),
 	}
 
 	handler, err := s.createHandler()
@@ -64,8 +73,18 @@ func (s *Webserver) serve() {
 
 func (s *Webserver) run() {
 	for notif := range s.params.Common.NotificationsChan {
-		// TODO: we'll use it when websocket is implemented
-		_ = notif
+		s.subsMtx.Lock()
+		for _, sub := range s.subs {
+			select {
+			case sub <- notif:
+				// All good
+			default:
+				fmt.Fprintf(os.Stderr, "failed to send notification to ws conn: buffer is full")
+				// TODO: better error handling
+			}
+
+		}
+		s.subsMtx.Unlock()
 	}
 
 	// Input channel was closed, so teardown now
@@ -81,7 +100,7 @@ func (s *Webserver) createHandler() (http.Handler, error) {
 	{
 		rAPI.Use(makeDesiredContentTypeMiddleware("application/json"))
 		rAPI.HandleFunc(pat.Get("/status"), makeAPIHandlerWWriter(s.status))
-		//rAPI.HandleFunc(pat.Get("/wsconnect"), makeAPIHandlerWWriter(s.wsConnect))
+		rAPI.HandleFunc(pat.Get("/wsconnect"), makeAPIHandlerWWriter(s.wsConnect))
 	}
 
 	return rRoot, nil
@@ -91,4 +110,17 @@ func (s *Webserver) status(w http.ResponseWriter, r *http.Request) (resp interfa
 	return map[string]interface{}{
 		"ongoingIncidents": s.params.Common.ItemsBoard.Get(),
 	}, nil
+}
+
+func (s *Webserver) subscribe() (subID int, ch chan *salmon.Notification) {
+	s.subsMtx.Lock()
+	defer s.subsMtx.Unlock()
+
+	subID = s.nextSubID
+	s.nextSubID++
+
+	ch = make(chan *salmon.Notification, 32)
+	s.subs[subID] = ch
+
+	return subID, ch
 }

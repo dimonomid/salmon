@@ -32,13 +32,13 @@ func main() {
 							},
 
 							// TODO: make sure we get errors due to that non-existing service
-							systemd.ConfigUnitRule{
-								Name: "some-non-existing.service",
-								Conds: []systemd.ConfigCond{
-									systemd.ConfigCond{State: "active", Result: salmon.ItemStateOK},
-									systemd.ConfigCond{Result: salmon.ItemStateError},
-								},
-							},
+							//systemd.ConfigUnitRule{
+							//Name: "some-non-existing.service",
+							//Conds: []systemd.ConfigCond{
+							//systemd.ConfigCond{State: "active", Result: salmon.ItemStateOK},
+							//systemd.ConfigCond{Result: salmon.ItemStateError},
+							//},
+							//},
 							systemd.ConfigUnitRule{
 								Type: "service",
 								Conds: []systemd.ConfigCond{
