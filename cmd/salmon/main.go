@@ -39,6 +39,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	fmt.Println("Salmon core is initialized")
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 

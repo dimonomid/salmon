@@ -58,6 +58,8 @@ func New(params Params) (*Webserver, error) {
 	go s.serve()
 	go s.run()
 
+	fmt.Println("Webserver is listening on", s.params.Config.ListenAddress)
+
 	return s, nil
 }
 

@@ -45,16 +45,22 @@ func New(params Params) (*FileLogger, error) {
 
 	go fl.run()
 
+	fmt.Println("Writing logs to", fl.filenameHumanReadable())
+
 	return fl, nil
 }
 
-func (fl *FileLogger) String() string {
+func (fl *FileLogger) filenameHumanReadable() string {
 	filename := fl.params.Config.FileName
 	if filename == "" {
 		filename = "stdout"
 	}
 
-	return fmt.Sprintf("filelogger to %s", filename)
+	return filename
+}
+
+func (fl *FileLogger) String() string {
+	return fmt.Sprintf("filelogger to %s", fl.filenameHumanReadable())
 }
 
 func (fl *FileLogger) run() {

@@ -39,6 +39,8 @@ func NewCollector(params CollectorParams) (*Collector, error) {
 
 	go c.run(providerUpdCh)
 
+	fmt.Printf("Collecting data from systemd (%s)\n", params.Common.ID)
+
 	return c, nil
 }
 
