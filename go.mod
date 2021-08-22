@@ -11,5 +11,8 @@ require (
 	github.com/gorilla/websocket v1.4.2
 	github.com/juju/errors v0.0.0-20200330140219-3fe23663418f
 	github.com/juju/testing v0.0.0-20210324180055-18c50b0c2098 // indirect
+	github.com/spf13/pflag v1.0.5
 	goji.io v2.0.2+incompatible
+	golang.org/x/sys v0.0.0-20210603081109-ebe580a85c40 // indirect
+	gopkg.in/yaml.v2 v2.4.0
 )

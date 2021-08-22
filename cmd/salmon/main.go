@@ -2,76 +2,34 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/dimonomid/salmon"
-	"github.com/dimonomid/salmon/backend/collectors/systemd"
 	"github.com/dimonomid/salmon/backend/core"
-	"github.com/dimonomid/salmon/backend/messengers/filelogger"
-	"github.com/dimonomid/salmon/backend/messengers/webserver"
+	"github.com/juju/errors"
+	"github.com/spf13/pflag"
+	"gopkg.in/yaml.v2"
 
 	"github.com/benbjohnson/clock"
 )
 
 func main() {
-	c, err := core.NewCore(
-		core.Config{
-			Collectors: []core.Collector{
-				core.Collector{
-					ID: "mysystemd",
-					Systemd: &systemd.Config{
-						UnitRules: []systemd.ConfigUnitRule{
-							systemd.ConfigUnitRule{
-								Name: "my-iptables.service",
-								Conds: []systemd.ConfigCond{
-									systemd.ConfigCond{State: "active", Result: salmon.ItemStateOK},
-									systemd.ConfigCond{Result: salmon.ItemStateError},
-								},
-							},
+	configFilename := pflag.String(
+		"config", "/etc/salmon.yml", "Config filename",
+	)
 
-							// TODO: make sure we get errors due to that non-existing service
-							//systemd.ConfigUnitRule{
-							//Name: "some-non-existing.service",
-							//Conds: []systemd.ConfigCond{
-							//systemd.ConfigCond{State: "active", Result: salmon.ItemStateOK},
-							//systemd.ConfigCond{Result: salmon.ItemStateError},
-							//},
-							//},
-							systemd.ConfigUnitRule{
-								Type: "service",
-								Conds: []systemd.ConfigCond{
-									systemd.ConfigCond{State: "active", Result: salmon.ItemStateOK},
-									systemd.ConfigCond{State: "inactive", Result: salmon.ItemStateOK},
-									systemd.ConfigCond{State: "activating", Result: salmon.ItemStateOK},
-									systemd.ConfigCond{State: "deactivating", Result: salmon.ItemStateOK},
-									systemd.ConfigCond{State: systemd.UnitStateNotSentBySystemd, Result: salmon.ItemStateOK},
-									systemd.ConfigCond{Result: salmon.ItemStateError},
-								},
-							},
-						},
-					},
-				},
-			},
-			Messengers: []core.Messenger{
-				core.Messenger{
-					FileLogger: &filelogger.Config{
-						FileName: "/var/tmp/my_salmon_log",
-					},
-				},
-				core.Messenger{
-					FileLogger: &filelogger.Config{
-						FileName: "", // stdout
-					},
-				},
-				core.Messenger{
-					Webserver: &webserver.Config{
-						ListenAddress: ":8081",
-					},
-				},
-			},
-		},
+	pflag.Parse()
+
+	cfg, err := loadConfig(*configFilename)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to read config from %s: %s\n", configFilename, err)
+		os.Exit(1)
+	}
+
+	c, err := core.NewCore(
+		*cfg,
 		core.Params{
 			Clock: clock.New(),
 		},
@@ -89,4 +47,19 @@ func main() {
 	c.Close()
 
 	fmt.Println("Bye.")
+}
+
+func loadConfig(filename string) (*core.Config, error) {
+	data, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	var cfg core.Config
+
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	return &cfg, nil
 }
