@@ -83,10 +83,16 @@ func onReady() {
 			d, _ := json.MarshalIndent(notif, "", "  ")
 			fmt.Println(string(d))
 
-			if len(notif.OngoingIncidents.Added) != 0 {
-				for _, item := range notif.OngoingIncidents.Added {
-					notify.Push(string(item.Key), item.Comment, "", notificator.UR_CRITICAL)
-				}
+			for _, item := range notif.OngoingIncidents.Added {
+				notify.Push(string(item.State)+": "+string(item.Key), item.Comment, "", notificator.UR_CRITICAL)
+			}
+
+			for _, item := range notif.OngoingIncidents.Updated {
+				notify.Push("updated "+string(item.State)+": "+string(item.Key), item.Comment, "", notificator.UR_CRITICAL)
+			}
+
+			for _, item := range notif.OngoingIncidents.Removed {
+				notify.Push("OK: "+string(item.Key), "", "", notificator.UR_CRITICAL)
 			}
 
 			state := getOverallStateFromItems(notif.OngoingIncidents.Total)
