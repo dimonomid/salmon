@@ -3,13 +3,13 @@ package main
 import (
 	"io/ioutil"
 
-	"github.com/dimonomid/salmon/wsclient"
+	"github.com/dimonomid/salmon/backend/core"
 	"github.com/juju/errors"
 	"gopkg.in/yaml.v2"
 )
 
 type config struct {
-	WSClient wsclient.Config `yaml:"wsClient"`
+	Core core.Config `yaml:"core"`
 }
 
 func loadConfig(filename string) (*config, error) {

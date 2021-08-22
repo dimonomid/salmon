@@ -6,7 +6,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/user"
 	"strings"
@@ -14,9 +13,7 @@ import (
 	"github.com/0xAX/notificator"
 	"github.com/benbjohnson/clock"
 	"github.com/dimonomid/systray"
-	"github.com/juju/errors"
 	"github.com/spf13/pflag"
-	"gopkg.in/yaml.v2"
 
 	"github.com/dimonomid/salmon"
 	"github.com/dimonomid/salmon/wsclient"
@@ -241,19 +238,4 @@ func applyIcon(state overallState) {
 	}
 
 	systray.SetIcon(icon)
-}
-
-func loadConfig(filename string) (*config, error) {
-	data, err := ioutil.ReadFile(filename)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	var cfg config
-
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	return &cfg, nil
 }

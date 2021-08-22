@@ -2,15 +2,12 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/dimonomid/salmon/backend/core"
-	"github.com/juju/errors"
 	"github.com/spf13/pflag"
-	"gopkg.in/yaml.v2"
 
 	"github.com/benbjohnson/clock"
 )
@@ -29,7 +26,7 @@ func main() {
 	}
 
 	c, err := core.NewCore(
-		*cfg,
+		cfg.Core,
 		core.Params{
 			Clock: clock.New(),
 		},
@@ -49,19 +46,4 @@ func main() {
 	c.Close()
 
 	fmt.Println("Bye.")
-}
-
-func loadConfig(filename string) (*core.Config, error) {
-	data, err := ioutil.ReadFile(filename)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	var cfg core.Config
-
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	return &cfg, nil
 }
