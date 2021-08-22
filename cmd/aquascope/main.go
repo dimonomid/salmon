@@ -62,6 +62,8 @@ func onReady() {
 		os.Exit(1)
 	}
 
+	mitemExit := systray.AddMenuItem("Exit", "")
+
 	notify = notificator.New(notificator.Options{})
 	notify.Push("Hello there", "Aquascope started", "", notificator.UR_NORMAL)
 
@@ -128,17 +130,17 @@ func onReady() {
 
 	_ = c
 
-	//go func() {
-	//for {
-	//select {
-	//case <-mitemStatus.ClickedCh:
-	//open.Run(fmt.Sprintf("http://localhost:%d/status", port))
+	go func() {
+		for {
+			select {
+			//case <-mitemStatus.ClickedCh:
+			//open.Run(fmt.Sprintf("http://localhost:%d/status", port))
 
-	//case <-mitemTestNotif.ClickedCh:
-	//sendNotification("Test title", "notification text")
-	//}
-	//}
-	//}()
+			case <-mitemExit.ClickedCh:
+				systray.Quit()
+			}
+		}
+	}()
 }
 
 func onExit() {
