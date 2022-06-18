@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/dimonomid/salmon/backend/collectors"
+	"github.com/dimonomid/salmon/backend/collectors/exec"
 	"github.com/dimonomid/salmon/backend/collectors/systemd"
 )
 
@@ -27,6 +28,22 @@ func createCollector(
 		})
 		if err != nil {
 			return nil, fmt.Errorf("creating systemd collector: %w", err)
+		}
+
+		return c, nil
+	}
+
+	if cfg.Exec != nil {
+		if ret != nil {
+			return nil, fmt.Errorf("config contains more than a single collector")
+		}
+
+		c, err := exec.NewCollector(exec.CollectorParams{
+			Common: commonParams,
+			Config: *cfg.Exec,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("creating exec collector: %w", err)
 		}
 
 		return c, nil

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"github.com/dimonomid/salmon/backend/collectors/exec"
 	"github.com/dimonomid/salmon/backend/collectors/systemd"
 	"github.com/dimonomid/salmon/backend/messengers/filelogger"
 	"github.com/dimonomid/salmon/backend/messengers/webserver"
@@ -25,9 +26,7 @@ type Collector struct {
 	// must be non-nil.
 
 	Systemd *systemd.Config `yaml:"systemd"`
-
-	// TODO: implement other collectors, like running a shell command, watching
-	// log file for something, etc.
+	Exec    *exec.Config    `yaml:"exec"`
 }
 
 type Messenger struct {
