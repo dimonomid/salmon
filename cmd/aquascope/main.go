@@ -32,8 +32,6 @@ var (
 	iconSalmonMagenta []byte
 	iconSalmonYellow  []byte
 	iconSalmonRed     []byte
-
-	//mitemStatus *systray.MenuItem
 )
 
 func main() {
@@ -62,6 +60,7 @@ func onReady() {
 		os.Exit(1)
 	}
 
+	mitemStatus := systray.AddMenuItem("Status", "")
 	mitemExit := systray.AddMenuItem("Exit", "")
 
 	notify = notificator.New(notificator.Options{})
@@ -100,27 +99,6 @@ func onReady() {
 			applyIcon(state)
 		},
 
-		//AuthnHandler: func(user *core.User, err string) {
-		//if err != "" {
-		//notify.Push("Authentication error", err, "", notificator.UR_NORMAL)
-		//return
-		//}
-
-		//cc.SetUser(user)
-		//},
-
-		//ServerInternalErrorHandler: func(err string) {
-		//fmt.Println("internal server error:", err)
-		////cc.SetConnError(err)
-		////applyTray(cc.GetTrayInfo(), false)
-		//},
-
-		//ConnErrorHandler: func(err string) {
-		//fmt.Println("conn error:", err)
-		////cc.SetConnError(err)
-		////applyTray(cc.GetTrayInfo(), false)
-		//},
-
 		Clock: clock.New(),
 	})
 	if err != nil {
@@ -133,8 +111,9 @@ func onReady() {
 	go func() {
 		for {
 			select {
-			//case <-mitemStatus.ClickedCh:
-			//open.Run(fmt.Sprintf("http://localhost:%d/status", port))
+			case <-mitemStatus.ClickedCh:
+				// TODO
+				//open.Run(fmt.Sprintf("http://localhost:%d/status", port))
 
 			case <-mitemExit.ClickedCh:
 				systray.Quit()
@@ -186,39 +165,8 @@ func getOverallStateFromItem(item *salmon.ItemWContext) overallState {
 	return overallStateError
 }
 
-func playBeep(assetName string) error {
-	//f, err := assets.Open(assetName)
-	//if err != nil {
-	//return err
-	//}
-	//defer f.Close()
-
-	//d, err := mp3.NewDecoder(f)
-	//if err != nil {
-	//return err
-	//}
-	//defer d.Close()
-
-	//c, err := oto.NewContext(d.SampleRate(), 2, 2, 8192)
-	//if err != nil {
-	//return err
-	//}
-	//defer c.Close()
-
-	//p := c.NewPlayer()
-	//defer p.Close()
-
-	//if _, err := io.Copy(p, d); err != nil {
-	//return err
-	//}
-	//return nil
-
-	return nil
-}
-
 func sendNotification(title, text string) {
 	notify.Push(title, text, "", notificator.UR_NORMAL)
-	playBeep(assetNameReminderBeep)
 }
 
 func applyIcon(state overallState) {
