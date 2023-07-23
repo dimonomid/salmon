@@ -6,6 +6,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/user"
 	"strings"
@@ -13,6 +15,8 @@ import (
 	"github.com/0xAX/notificator"
 	"github.com/benbjohnson/clock"
 	"github.com/dimonomid/systray"
+	assetfs "github.com/elazarl/go-bindata-assetfs"
+	"github.com/skratchdot/open-golang/open"
 	"github.com/spf13/pflag"
 
 	"github.com/dimonomid/salmon"
@@ -20,8 +24,7 @@ import (
 )
 
 const (
-	assetNameReminderBeep = "reminder.mp3"
-	defPort               = 46253
+	defPort = 41991
 )
 
 var notify *notificator.Notificator
@@ -108,18 +111,65 @@ func onReady() {
 
 	_ = c
 
+	listener := setupWebserver()
+	port := listener.Addr().(*net.TCPAddr).Port
+
+	fmt.Printf("Listening on %d\n", port)
+
+	go func() {
+		panic(http.Serve(listener, nil))
+	}()
+
 	go func() {
 		for {
 			select {
 			case <-mitemStatus.ClickedCh:
-				// TODO
-				//open.Run(fmt.Sprintf("http://localhost:%d/status", port))
+				open.Run(fmt.Sprintf("http://localhost:%d/status", port))
 
 			case <-mitemExit.ClickedCh:
 				systray.Quit()
 			}
 		}
 	}()
+}
+
+// setupWebserver tries to create a listener on the default port (defPort);
+// if that fails for whatever reason, tries to listen on a random port, and if
+// that fails as well, panics.
+func setupWebserver() net.Listener {
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", defPort))
+	if err != nil {
+		fmt.Printf("Failed to listen on a default port %d (%s), listening on random port\n", defPort, err)
+		listener, err = net.Listen("tcp", ":0")
+		if err != nil {
+			panic(err.Error())
+		}
+	}
+
+	http.HandleFunc("/status", func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte("TODO status"))
+	})
+
+	http.Handle("/", webrootFileServer())
+
+	return listener
+}
+
+func webrootFileServer() http.Handler {
+	assetInfo := func(path string) (os.FileInfo, error) {
+		return os.Stat(path)
+	}
+
+	return http.FileServer(
+		&assetfs.AssetFS{
+			Asset:     Asset,
+			AssetDir:  AssetDir,
+			AssetInfo: assetInfo,
+			Prefix:    "assets/webroot",
+		},
+	)
 }
 
 func onExit() {
