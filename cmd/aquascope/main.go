@@ -14,8 +14,8 @@ import (
 
 	"github.com/0xAX/notificator"
 	"github.com/benbjohnson/clock"
-	"github.com/dimonomid/systray"
 	assetfs "github.com/elazarl/go-bindata-assetfs"
+	"github.com/getlantern/systray"
 	"github.com/skratchdot/open-golang/open"
 	"github.com/spf13/pflag"
 
