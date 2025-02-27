@@ -85,15 +85,15 @@ func onReady() {
 			fmt.Println(string(d))
 
 			for _, item := range notif.OngoingIncidents.Added {
-				notify.Push(string(item.State)+": "+string(item.Key), item.Comment, "", notificator.UR_CRITICAL)
+				notify.Push(string(item.State)+": "+string(item.Key), item.Comment, "", notificator.UR_NORMAL)
 			}
 
 			for _, item := range notif.OngoingIncidents.Updated {
-				notify.Push("updated "+string(item.State)+": "+string(item.Key), item.Comment, "", notificator.UR_CRITICAL)
+				notify.Push("updated "+string(item.State)+": "+string(item.Key), item.Comment, "", notificator.UR_NORMAL)
 			}
 
 			for _, item := range notif.OngoingIncidents.Removed {
-				notify.Push("OK: "+string(item.Key), "", "", notificator.UR_CRITICAL)
+				notify.Push("OK: "+string(item.Key), "", "", notificator.UR_NORMAL)
 			}
 
 			state := getOverallStateFromItems(notif.OngoingIncidents.Total)
