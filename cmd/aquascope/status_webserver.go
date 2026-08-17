@@ -228,20 +228,26 @@ func setupWebserver(statusWebserver *statusWebserver) net.Listener {
 	}
 
 	// The status page and browser websocket share this local HTTP server.
-	http.HandleFunc("/status", serveStatusPage)
-	http.HandleFunc("/api/v1/wsconnect", statusWebserver.wsConnect)
-	http.HandleFunc("/api/v1/snooze", statusWebserver.snooze)
-	http.HandleFunc("/api/v1/unsnooze", statusWebserver.unsnooze)
-	// Reuse the same image assets as the systray icon in the status UI.
+	http.Handle("/", rootHandler(statusWebserver))
+	return listener
+}
+
+func rootHandler(statusWebserver *statusWebserver) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/status", serveStatusPage)
+	mux.HandleFunc("/api/v1/wsconnect", statusWebserver.wsConnect)
+	mux.HandleFunc("/api/v1/snooze", statusWebserver.snooze)
+	mux.HandleFunc("/api/v1/unsnooze", statusWebserver.unsnooze)
 	for _, iconName := range []string{"gray", "green", "magenta", "yellow", "red"} {
 		iconAssetPath := fmt.Sprintf("assets/salmon_%s.png", iconName)
-		http.HandleFunc("/icons/salmon_"+iconName+".png", func(w http.ResponseWriter, r *http.Request) {
-			serveIcon(w, r, iconAssetPath)
-		})
+		mux.HandleFunc("/icons/salmon_"+iconName+".png", func(assetPath string) http.HandlerFunc {
+			return func(w http.ResponseWriter, r *http.Request) {
+				serveIcon(w, r, assetPath)
+			}
+		}(iconAssetPath))
 	}
-
-	http.Handle("/", noStoreHandler(webrootFileServer()))
-	return listener
+	mux.Handle("/", noStoreHandler(webrootFileServer()))
+	return mux
 }
 
 func serveStatusPage(w http.ResponseWriter, r *http.Request) {
