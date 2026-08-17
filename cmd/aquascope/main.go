@@ -204,7 +204,7 @@ func getOverallStateFromItem(item *salmon.ItemWContext) overallState {
 		return overallStateOK
 	}
 
-	if strings.Contains(string(item.Key), "internal") {
+	if strings.HasPrefix(string(item.Key), "internal.") {
 		return overallStateInternalError
 	}
 
