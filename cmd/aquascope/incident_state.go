@@ -119,6 +119,7 @@ func (s *incidentState) Snooze(key string, duration time.Duration) error {
 	if err := s.snoozes.Snooze(key, duration); err != nil {
 		return err
 	}
+	fmt.Printf("Incident snoozed: key=%s duration=%s\n", key, duration)
 	s.notifyUpdate()
 	return nil
 }
@@ -129,6 +130,7 @@ func (s *incidentState) Unsnooze(key string) error {
 	if err := s.snoozes.Unsnooze(key); err != nil {
 		return err
 	}
+	fmt.Printf("Incident unsnoozed: key=%s\n", key)
 	s.notifyUpdate()
 	return nil
 }
@@ -141,12 +143,15 @@ func (s *incidentState) watchSnoozeExpirations() {
 
 	for {
 		<-ticker.C
-		changed, err := s.snoozes.expire()
+		expired, err := s.snoozes.expire()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to expire snoozes: %s\n", err)
 			continue
 		}
-		if changed {
+		for _, key := range expired {
+			fmt.Printf("Snooze expired: key=%s\n", key)
+		}
+		if len(expired) > 0 {
 			s.notifyUpdate()
 		}
 	}
@@ -217,30 +222,30 @@ func (s *snoozeState) IsSnoozed(key string, now time.Time) bool {
 	return exists && entry.SnoozedUntil.After(now)
 }
 
-// expire removes snoozes whose expiration time has passed. It reports whether
-// the persisted state changed.
-func (s *snoozeState) expire() (bool, error) {
+// expire removes snoozes whose expiration time has passed and returns their
+// keys.
+func (s *snoozeState) expire() ([]string, error) {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
 
 	now := time.Now()
 	updated := make(map[string]snoozeEntry, len(s.snoozed))
-	changed := false
+	expired := make([]string, 0)
 	for key, entry := range s.snoozed {
 		if entry.SnoozedUntil.After(now) {
 			updated[key] = entry
 		} else {
-			changed = true
+			expired = append(expired, key)
 		}
 	}
-	if !changed {
-		return false, nil
+	if len(expired) == 0 {
+		return nil, nil
 	}
 	if err := s.writeLocked(updated); err != nil {
-		return false, err
+		return nil, err
 	}
 	s.snoozed = updated
-	return true, nil
+	return expired, nil
 }
 
 // writeLocked writes a human-readable state file. The caller must hold mtx
