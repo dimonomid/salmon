@@ -5,6 +5,7 @@
 // assets/salmon_green.png
 // assets/salmon_magenta.png
 // assets/salmon_red.png
+// assets/salmon_transparent.png
 // assets/salmon_yellow.png
 // assets/webroot/app.css
 // assets/webroot/app.js
@@ -145,6 +146,23 @@ func assetsSalmon_redPng() (*asset, error) {
 	}
 
 	info := bindataFileInfo{name: "assets/salmon_red.png", size: 419, mode: os.FileMode(420), modTime: time.Unix(1, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
+var _assetsSalmon_transparentPng = []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00(\x00\x00\x00(\x01\x00\x00\x00\x00\xa4\x85\x85\xc0\x00\x00\x00 cHRM\x00\x00z&\x00\x00\x80\x84\x00\x00\xfa\x00\x00\x00\x80\xe8\x00\x00u0\x00\x00\xea`\x00\x00:\x98\x00\x00\x17p\x9c\xbaQ<\x00\x00\x00\x02tRNS\x00\x00v\x93\xcd8\x00\x00\x00\x02bKGD\x00\x01\u074a\x13\xa4\x00\x00\x00\atIME\a\xea\b\x11\x06 \x0f\xa2h\xac\xfe\x00\x00\x00\fIDAT\b\xd7c`\x18Y\x00\x00\x00\xf0\x00\x01\u05f7\x96\xa2\x00\x00\x00\x00IEND\xaeB`\x82")
+
+func assetsSalmon_transparentPngBytes() ([]byte, error) {
+	return _assetsSalmon_transparentPng, nil
+}
+
+func assetsSalmon_transparentPng() (*asset, error) {
+	bytes, err := assetsSalmon_transparentPngBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "assets/salmon_transparent.png", size: 160, mode: os.FileMode(420), modTime: time.Unix(1, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -392,15 +410,16 @@ func AssetNames() []string {
 
 // _bindata is a table, holding each asset generator, mapped to its name.
 var _bindata = map[string]func() (*asset, error){
-	"assets/reminder.mp3":       assetsReminderMp3,
-	"assets/salmon_gray.png":    assetsSalmon_grayPng,
-	"assets/salmon_green.png":   assetsSalmon_greenPng,
-	"assets/salmon_magenta.png": assetsSalmon_magentaPng,
-	"assets/salmon_red.png":     assetsSalmon_redPng,
-	"assets/salmon_yellow.png":  assetsSalmon_yellowPng,
-	"assets/webroot/app.css":    assetsWebrootAppCss,
-	"assets/webroot/app.js":     assetsWebrootAppJs,
-	"assets/webroot/index.html": assetsWebrootIndexHtml,
+	"assets/reminder.mp3":           assetsReminderMp3,
+	"assets/salmon_gray.png":        assetsSalmon_grayPng,
+	"assets/salmon_green.png":       assetsSalmon_greenPng,
+	"assets/salmon_magenta.png":     assetsSalmon_magentaPng,
+	"assets/salmon_red.png":         assetsSalmon_redPng,
+	"assets/salmon_transparent.png": assetsSalmon_transparentPng,
+	"assets/salmon_yellow.png":      assetsSalmon_yellowPng,
+	"assets/webroot/app.css":        assetsWebrootAppCss,
+	"assets/webroot/app.js":         assetsWebrootAppJs,
+	"assets/webroot/index.html":     assetsWebrootIndexHtml,
 }
 
 // AssetDir returns the file names below a certain
@@ -445,12 +464,13 @@ type bintree struct {
 
 var _bintree = &bintree{nil, map[string]*bintree{
 	"assets": &bintree{nil, map[string]*bintree{
-		"reminder.mp3":       &bintree{assetsReminderMp3, map[string]*bintree{}},
-		"salmon_gray.png":    &bintree{assetsSalmon_grayPng, map[string]*bintree{}},
-		"salmon_green.png":   &bintree{assetsSalmon_greenPng, map[string]*bintree{}},
-		"salmon_magenta.png": &bintree{assetsSalmon_magentaPng, map[string]*bintree{}},
-		"salmon_red.png":     &bintree{assetsSalmon_redPng, map[string]*bintree{}},
-		"salmon_yellow.png":  &bintree{assetsSalmon_yellowPng, map[string]*bintree{}},
+		"reminder.mp3":           &bintree{assetsReminderMp3, map[string]*bintree{}},
+		"salmon_gray.png":        &bintree{assetsSalmon_grayPng, map[string]*bintree{}},
+		"salmon_green.png":       &bintree{assetsSalmon_greenPng, map[string]*bintree{}},
+		"salmon_magenta.png":     &bintree{assetsSalmon_magentaPng, map[string]*bintree{}},
+		"salmon_red.png":         &bintree{assetsSalmon_redPng, map[string]*bintree{}},
+		"salmon_transparent.png": &bintree{assetsSalmon_transparentPng, map[string]*bintree{}},
+		"salmon_yellow.png":      &bintree{assetsSalmon_yellowPng, map[string]*bintree{}},
 		"webroot": &bintree{nil, map[string]*bintree{
 			"app.css":    &bintree{assetsWebrootAppCss, map[string]*bintree{}},
 			"app.js":     &bintree{assetsWebrootAppJs, map[string]*bintree{}},

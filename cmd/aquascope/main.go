@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"os/user"
-	"strings"
 
 	"github.com/0xAX/notificator"
 	"github.com/benbjohnson/clock"
@@ -23,14 +22,6 @@ import (
 )
 
 var notify *notificator.Notificator
-
-var (
-	iconSalmonGray    []byte
-	iconSalmonGreen   []byte
-	iconSalmonMagenta []byte
-	iconSalmonYellow  []byte
-	iconSalmonRed     []byte
-)
 
 func main() {
 	// NOTE: Run should be the only thing which executes in main; otherwise
@@ -64,11 +55,7 @@ func onReady() {
 	notify = notificator.New(notificator.Options{})
 	notify.Push("Hello there", "Aquascope started", "", notificator.UR_NORMAL)
 
-	iconSalmonGray = MustAsset("assets/salmon_gray.png")
-	iconSalmonGreen = MustAsset("assets/salmon_green.png")
-	iconSalmonMagenta = MustAsset("assets/salmon_magenta.png")
-	iconSalmonYellow = MustAsset("assets/salmon_yellow.png")
-	iconSalmonRed = MustAsset("assets/salmon_red.png")
+	loadTrayIcons()
 
 	applyIcon(overallStateUnknown)
 	statusWebserver := newStatusWebserver()
@@ -133,68 +120,4 @@ func onReady() {
 
 func onExit() {
 	fmt.Println("Exiting")
-}
-
-type overallState int
-
-const (
-	overallStateUnknown overallState = iota
-	overallStateOK
-	overallStateInternalError
-	overallStateWarning
-	overallStateError
-)
-
-func getOverallStateFromItems(items []*salmon.ItemWContext) overallState {
-	ret := overallStateOK
-
-	for _, item := range items {
-		cur := getOverallStateFromItem(item)
-		if ret < cur {
-			ret = cur
-		}
-	}
-
-	return ret
-}
-
-func getOverallStateFromItem(item *salmon.ItemWContext) overallState {
-	if item.State == salmon.ItemStateOK {
-		return overallStateOK
-	}
-
-	if strings.HasPrefix(string(item.Key), "internal.") {
-		return overallStateInternalError
-	}
-
-	if item.State == salmon.ItemStateWarning {
-		return overallStateWarning
-	}
-
-	return overallStateError
-}
-
-func sendNotification(title, text string) {
-	notify.Push(title, text, "", notificator.UR_NORMAL)
-}
-
-func applyIcon(state overallState) {
-	var icon []byte
-
-	switch state {
-	case overallStateUnknown:
-		icon = iconSalmonGray
-	case overallStateOK:
-		icon = iconSalmonGreen
-	case overallStateInternalError:
-		icon = iconSalmonMagenta
-	case overallStateWarning:
-		icon = iconSalmonYellow
-	case overallStateError:
-		icon = iconSalmonRed
-	default:
-		panic(fmt.Sprintf("invalid state %d", state))
-	}
-
-	systray.SetIcon(icon)
 }
