@@ -9,7 +9,6 @@ import (
 	"os/user"
 	"path/filepath"
 
-	"github.com/0xAX/notificator"
 	"github.com/benbjohnson/clock"
 	"github.com/getlantern/systray"
 	"github.com/skratchdot/open-golang/open"
@@ -19,7 +18,7 @@ import (
 	"github.com/dimonomid/salmon/wsclient"
 )
 
-var notify *notificator.Notificator
+var notify notificator
 
 func main() {
 	// NOTE: Run should be the only thing which executes in main; otherwise
@@ -50,8 +49,8 @@ func onReady() {
 	mitemStatus := systray.AddMenuItem("Status", "")
 	mitemExit := systray.AddMenuItem("Exit", "")
 
-	notify = notificator.New(notificator.Options{})
-	notify.Push("Hello there", "Aquascope started", "", notificator.UR_NORMAL)
+	notify = newDesktopNotificationSink()
+	notify.Push("Hello there", "Aquascope started")
 
 	loadTrayIcons()
 
@@ -83,7 +82,7 @@ func onReady() {
 				if incidentState.IsSnoozed(string(item.Key)) {
 					continue
 				}
-				notify.Push(string(item.State)+": "+string(item.Key), item.Comment, "", notificator.UR_NORMAL)
+				notify.Push(string(item.State)+": "+string(item.Key), item.Comment)
 			}
 
 			// Do not show desktop notifications for updates to existing incidents:
@@ -94,7 +93,7 @@ func onReady() {
 				if incidentState.IsSnoozed(string(item.Key)) {
 					continue
 				}
-				notify.Push("OK: "+string(item.Key), "", "", notificator.UR_NORMAL)
+				notify.Push("OK: "+string(item.Key), "")
 			}
 
 			state := getOverallStateFromItems(snapshot.Alerting)

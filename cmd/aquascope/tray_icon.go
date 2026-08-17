@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/0xAX/notificator"
 	"github.com/getlantern/systray"
 
 	"github.com/dimonomid/salmon"
@@ -70,10 +69,6 @@ func getOverallStateFromItem(item salmon.ItemWContext) overallState {
 	}
 
 	return overallStateError
-}
-
-func sendNotification(title, text string) {
-	notify.Push(title, text, "", notificator.UR_NORMAL)
 }
 
 func applyIcon(state overallState) {
