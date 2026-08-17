@@ -88,9 +88,9 @@ func onReady() {
 				notify.Push(string(item.State)+": "+string(item.Key), item.Comment, "", notificator.UR_NORMAL)
 			}
 
-			for _, item := range notif.OngoingIncidents.Updated {
-				notify.Push("updated "+string(item.State)+": "+string(item.Key), item.Comment, "", notificator.UR_NORMAL)
-			}
+			// Do not show desktop notifications for updates to existing incidents:
+			// volatile details (such as connection ports in an error) can change
+			// repeatedly while the underlying incident is still the same.
 
 			for _, item := range notif.OngoingIncidents.Removed {
 				notify.Push("OK: "+string(item.Key), "", "", notificator.UR_NORMAL)
