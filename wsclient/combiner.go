@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/dimonomid/salmon"
 	"github.com/dimonomid/salmon/statestracker"
@@ -39,7 +40,8 @@ type CombinerParams struct {
 	//AuthnHandler               func(user, err string)
 	//ServerInternalErrorHandler func(err string)
 
-	Clock clock.Clock
+	Clock          clock.Clock
+	ReconnectDelay time.Duration
 }
 
 func NewCombiner(params CombinerParams) (*Combiner, error) {
@@ -65,6 +67,7 @@ func NewCombiner(params CombinerParams) (*Combiner, error) {
 			OngoingIncidentsCh:    ongoingIncidentsCh,
 			ConnErrorCh:           connErrorCh,
 			ServerInternalErrorCh: serverInternalErrorCh,
+			ReconnectDelay:        params.ReconnectDelay,
 		})
 		if err != nil {
 			c.Close()

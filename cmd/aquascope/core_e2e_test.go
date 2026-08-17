@@ -27,6 +27,19 @@ type recordingNotificator struct {
 	records []recordedNotification
 }
 
+func (n *recordingNotificator) waitForCount(t *testing.T, count int) []string {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(n.titles()) >= count {
+			return n.titles()
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d notifications; got %#v", count, n.titles())
+	return nil
+}
+
 func (n *recordingNotificator) Push(title, text string) {
 	n.mu.Lock()
 	n.records = append(n.records, recordedNotification{Title: title, Text: text})
@@ -130,6 +143,18 @@ func (m *mockSalmonServer) send(t *testing.T, notification salmon.Notification) 
 	}
 }
 
+func (m *mockSalmonServer) closeConnections() {
+	m.mu.Lock()
+	connections := make([]*websocket.Conn, 0, len(m.connections))
+	for conn := range m.connections {
+		connections = append(connections, conn)
+	}
+	m.mu.Unlock()
+	for _, conn := range connections {
+		_ = conn.Close()
+	}
+}
+
 type statusMessage struct {
 	OngoingIncidents struct {
 		Alerting []salmon.ItemWContext `json:"alerting"`
@@ -176,8 +201,9 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 			{ID: "first", Addr: first.address()},
 			{ID: "second", Addr: second.address()},
 		}},
-		StatePath:     t.TempDir() + "/state.json",
-		Notifications: notifications,
+		StatePath:      t.TempDir() + "/state.json",
+		Notifications:  notifications,
+		ReconnectDelay: time.Millisecond,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -223,6 +249,75 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 	if len(gotTitles) != 2 || !gotTitleSet["error: first.disk"] || !gotTitleSet["error: second.cpu"] {
 		t.Fatalf("unexpected notifications: %#v", gotTitles)
 	}
+
+	// Model a volatile update to first.disk. The browser must receive the new
+	// comment, but desktop notifications remain suppressed for updates.
+	updated := item("disk", "first changed")
+	first.send(t, salmon.Notification{OngoingIncidents: salmon.OngoingIncidentsWDelta{
+		Total:   []*salmon.ItemWContext{updated},
+		Updated: []*salmon.ItemWContext{updated},
+	}})
+	message = readStatus(t, statusConn)
+	foundUpdated := false
+	for _, incident := range message.OngoingIncidents.Alerting {
+		if incident.Key == "first.disk" && incident.Comment == "first changed" {
+			foundUpdated = true
+		}
+	}
+	if !foundUpdated {
+		t.Fatalf("status did not contain updated incident: %#v", message.OngoingIncidents.Alerting)
+	}
+	if got := notifications.titles(); len(got) != 2 {
+		t.Fatalf("incident update generated a notification: %#v", got)
+	}
+
+	// Removing a normal incident should publish its removal and notify the user
+	// that the incident recovered.
+	first.send(t, salmon.Notification{OngoingIncidents: salmon.OngoingIncidentsWDelta{
+		Removed: []*salmon.ItemWContext{updated},
+	}})
+	_ = readStatus(t, statusConn)
+	gotTitles = notifications.waitForCount(t, 3)
+	if !gotTitleSet["OK: first.disk"] && !contains(gotTitles, "OK: first.disk") {
+		t.Fatalf("incident recovery notification missing: %#v", gotTitles)
+	}
+
+	// Model one Salmon host going offline. AquaScope should expose the
+	// connection failure as an internal incident and notify about it.
+	second.closeConnections()
+	message = readStatus(t, statusConn)
+	internalError := false
+	for _, incident := range message.OngoingIncidents.Alerting {
+		if incident.Key == "internal.connection.second" && incident.State == salmon.ItemStateError {
+			internalError = true
+		}
+	}
+	if !internalError {
+		t.Fatalf("connection failure incident missing: %#v", message.OngoingIncidents.Alerting)
+	}
+	gotTitles = notifications.waitForCount(t, 4)
+	if !contains(gotTitles, "error: internal.connection.second") {
+		t.Fatalf("connection failure notification missing: %#v", gotTitles)
+	}
+
+	// The client reconnects, clearing the internal connection incident while
+	// preserving the last known incidents from that host.
+	second.waitConnected(t)
+	message = readStatus(t, statusConn)
+	for _, incident := range message.OngoingIncidents.Alerting {
+		if incident.Key == "internal.connection.second" {
+			t.Fatalf("connection failure incident was not cleared: %#v", message.OngoingIncidents.Alerting)
+		}
+	}
+}
+
+func contains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCoreSnoozedIncidentDoesNotNotify(t *testing.T) {
@@ -231,9 +326,10 @@ func TestCoreSnoozedIncidentDoesNotNotify(t *testing.T) {
 	salmonServer := newMockSalmonServer(t)
 	notifications := &recordingNotificator{}
 	core, err := newAquascopeCore(aquascopeCoreParams{
-		Config:        wsclient.Config{Servers: []wsclient.ConfigServer{{ID: "server", Addr: salmonServer.address()}}},
-		StatePath:     t.TempDir() + "/state.json",
-		Notifications: notifications,
+		Config:         wsclient.Config{Servers: []wsclient.ConfigServer{{ID: "server", Addr: salmonServer.address()}}},
+		StatePath:      t.TempDir() + "/state.json",
+		Notifications:  notifications,
+		ReconnectDelay: time.Millisecond,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -275,6 +371,26 @@ func TestCoreSnoozedIncidentDoesNotNotify(t *testing.T) {
 		t.Fatalf("snoozed incident generated notifications: %#v", got)
 	}
 
+	// A snoozed incident recovering must disappear silently, without an OK
+	// notification.
+	salmonServer.send(t, salmon.Notification{OngoingIncidents: salmon.OngoingIncidentsWDelta{
+		Removed: []*salmon.ItemWContext{incident},
+	}})
+	message = readStatus(t, statusConn)
+	if len(message.OngoingIncidents.Snoozed) != 0 {
+		t.Fatalf("removed snoozed incident is still shown: %#v", message.OngoingIncidents.Snoozed)
+	}
+	if got := notifications.titles(); len(got) != 0 {
+		t.Fatalf("snoozed recovery generated notifications: %#v", got)
+	}
+
+	// Reintroduce it while the snooze is still active so unsnoozing can verify
+	// the immediate transition into the alerting list.
+	salmonServer.send(t, salmon.Notification{OngoingIncidents: salmon.OngoingIncidentsWDelta{
+		Total: []*salmon.ItemWContext{incident},
+	}})
+	_ = readStatus(t, statusConn)
+
 	// Unsnoozing should immediately move the same incident back to alerting in
 	// the browser payload; this action itself does not create a desktop alert.
 	request, err = json.Marshal(map[string]string{"key": "server.disk"})
@@ -292,5 +408,99 @@ func TestCoreSnoozedIncidentDoesNotNotify(t *testing.T) {
 	message = readStatus(t, statusConn)
 	if len(message.OngoingIncidents.Alerting) != 1 || string(message.OngoingIncidents.Alerting[0].Key) != "server.disk" {
 		t.Fatalf("unexpected unsnoozed status: %#v", message.OngoingIncidents)
+	}
+}
+
+func TestCoreSnoozeExpirationPublishesUpdate(t *testing.T) {
+	// Use a short test interval to model the periodic expiration check without
+	// making the test wait for AquaScope's production ten-second interval.
+	salmonServer := newMockSalmonServer(t)
+	core, err := newAquascopeCore(aquascopeCoreParams{
+		Config:              wsclient.Config{Servers: []wsclient.ConfigServer{{ID: "server", Addr: salmonServer.address()}}},
+		StatePath:           t.TempDir() + "/state.json",
+		SnoozeCheckInterval: 5 * time.Millisecond,
+		ReconnectDelay:      time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(core.Close)
+	status := newLocalTestServer(rootHandler(core.statusWebserver))
+	t.Cleanup(status.Close)
+	statusConn := connectStatus(t, status.URL)
+	_ = readStatus(t, statusConn)
+	salmonServer.waitConnected(t)
+
+	incident := item("disk", "network is down")
+	salmonServer.send(t, salmon.Notification{OngoingIncidents: salmon.OngoingIncidentsWDelta{
+		Total: []*salmon.ItemWContext{incident},
+	}})
+	_ = readStatus(t, statusConn)
+
+	// Snoozing moves the active incident to the snoozed section immediately.
+	if err := core.incidentState.Snooze("server.disk", 15*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	message := readStatus(t, statusConn)
+	if len(message.OngoingIncidents.Snoozed) != 1 {
+		t.Fatalf("incident was not snoozed: %#v", message.OngoingIncidents)
+	}
+
+	// Once the short snooze expires, the periodic watcher must publish a new
+	// snapshot that moves the incident back to alerting.
+	message = readStatus(t, statusConn)
+	if len(message.OngoingIncidents.Alerting) != 1 || string(message.OngoingIncidents.Alerting[0].Key) != "server.disk" {
+		t.Fatalf("expired snooze did not return to alerting: %#v", message.OngoingIncidents)
+	}
+}
+
+func TestCoreCloseIsIdempotent(t *testing.T) {
+	// Closing the core twice must be safe and must return without leaving the
+	// Salmon connection worker running.
+	salmonServer := newMockSalmonServer(t)
+	core, err := newAquascopeCore(aquascopeCoreParams{
+		Config:         wsclient.Config{Servers: []wsclient.ConfigServer{{ID: "server", Addr: salmonServer.address()}}},
+		StatePath:      t.TempDir() + "/state.json",
+		ReconnectDelay: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	salmonServer.waitConnected(t)
+	core.Close()
+	core.Close()
+}
+
+func TestStatusWebSocketReconnectReceivesLatestSnapshot(t *testing.T) {
+	// Model a browser disconnecting and reconnecting after AquaScope has
+	// already received an incident. The new connection should get the latest
+	// snapshot immediately, without waiting for another Salmon message.
+	salmonServer := newMockSalmonServer(t)
+	core, err := newAquascopeCore(aquascopeCoreParams{
+		Config:         wsclient.Config{Servers: []wsclient.ConfigServer{{ID: "server", Addr: salmonServer.address()}}},
+		StatePath:      t.TempDir() + "/state.json",
+		ReconnectDelay: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(core.Close)
+	status := newLocalTestServer(rootHandler(core.statusWebserver))
+	t.Cleanup(status.Close)
+	firstConnection := connectStatus(t, status.URL)
+	_ = readStatus(t, firstConnection)
+	salmonServer.waitConnected(t)
+
+	incident := item("disk", "network is down")
+	salmonServer.send(t, salmon.Notification{OngoingIncidents: salmon.OngoingIncidentsWDelta{
+		Total: []*salmon.ItemWContext{incident},
+	}})
+	_ = readStatus(t, firstConnection)
+	_ = firstConnection.Close()
+
+	secondConnection := connectStatus(t, status.URL)
+	message := readStatus(t, secondConnection)
+	if len(message.OngoingIncidents.Alerting) != 1 || string(message.OngoingIncidents.Alerting[0].Key) != "server.disk" {
+		t.Fatalf("reconnected browser did not receive latest snapshot: %#v", message.OngoingIncidents)
 	}
 }

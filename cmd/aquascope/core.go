@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/benbjohnson/clock"
 
@@ -22,15 +23,32 @@ type aquascopeCore struct {
 }
 
 type aquascopeCoreParams struct {
-	Config        wsclient.Config
-	StatePath     string
+	// Config describes the Salmon servers AquaScope should connect to.
+	Config wsclient.Config
+	// StatePath is the location of the persisted snooze state file.
+	StatePath string
+	// Notifications receives desktop notification events.
 	Notifications notificator
-	OnIconState   func(overallState)
-	Clock         clock.Clock
+	// OnIconState applies the overall incident state to the tray icon.
+	OnIconState func(overallState)
+	// Clock supplies time to the incident combiner; tests can provide a fake.
+	Clock clock.Clock
+	// ReconnectDelay overrides the production 5*time.Second reconnect delay
+	// when non-zero.
+	ReconnectDelay time.Duration
+	// SnoozeCheckInterval overrides the production 10*time.Second snooze
+	// expiration polling interval when non-zero.
+	SnoozeCheckInterval time.Duration
 }
 
 func newAquascopeCore(params aquascopeCoreParams) (*aquascopeCore, error) {
-	incidentState, err := newIncidentState(params.StatePath)
+	var incidentState *incidentState
+	var err error
+	if params.SnoozeCheckInterval > 0 {
+		incidentState, err = newIncidentStateWithInterval(params.StatePath, params.SnoozeCheckInterval)
+	} else {
+		incidentState, err = newIncidentState(params.StatePath)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -53,6 +71,7 @@ func newAquascopeCore(params aquascopeCoreParams) (*aquascopeCore, error) {
 		Config:                  params.Config,
 		OngoingIncidentsHandler: core.onNotification,
 		Clock:                   params.Clock,
+		ReconnectDelay:          params.ReconnectDelay,
 	})
 	if err != nil {
 		return nil, err

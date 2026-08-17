@@ -60,6 +60,8 @@ type Params struct {
 	OngoingIncidentsCh    chan<- *salmon.Notification
 	ConnErrorCh           chan<- string
 	ServerInternalErrorCh chan<- string
+	// ReconnectDelay overrides the production reconnect delay when non-zero.
+	ReconnectDelay time.Duration
 }
 
 func New(params Params) (*WSClient, error) {
@@ -91,7 +93,11 @@ mainLoop:
 		}
 
 		if i > 0 {
-			timer := time.NewTimer(5 * time.Second)
+			delay := 5 * time.Second
+			if c.params.ReconnectDelay > 0 {
+				delay = c.params.ReconnectDelay
+			}
+			timer := time.NewTimer(delay)
 			select {
 			case <-timer.C:
 			case <-c.interrupt:

@@ -64,8 +64,12 @@ type snoozedIncident struct {
 // incidents and persisted snooze decisions. It produces the classified
 // snapshot consumed by both the tray icon and the status webserver.
 type incidentState struct {
+	// ongoingIncidents stores the latest combined Salmon snapshot.
 	ongoingIncidents latestOngoingIncidents
-	snoozes          *snoozeState
+	// snoozes stores persisted snooze decisions and their expiration times.
+	snoozes *snoozeState
+	// expirationInterval controls how often expired snoozes are checked.
+	expirationInterval time.Duration
 
 	// OnUpdate is called after the classified snapshot changes. The application
 	// uses it to publish the same snapshot to the webserver and tray.
@@ -75,11 +79,15 @@ type incidentState struct {
 // newIncidentState loads the persisted snoozes and initializes the shared
 // active-incident classifier.
 func newIncidentState(path string) (*incidentState, error) {
+	return newIncidentStateWithInterval(path, 10*time.Second)
+}
+
+func newIncidentStateWithInterval(path string, expirationInterval time.Duration) (*incidentState, error) {
 	snoozes, err := newSnoozeState(path)
 	if err != nil {
 		return nil, err
 	}
-	state := &incidentState{snoozes: snoozes}
+	state := &incidentState{snoozes: snoozes, expirationInterval: expirationInterval}
 	go state.watchSnoozeExpirations()
 	return state, nil
 }
@@ -148,7 +156,7 @@ func (s *incidentState) IsSnoozed(key string) bool {
 // watchSnoozeExpirations refreshes consumers periodically so expired snoozes
 // are noticed even if no new incident snapshot arrives from the server.
 func (s *incidentState) watchSnoozeExpirations() {
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(s.expirationInterval)
 	defer ticker.Stop()
 
 	for {
