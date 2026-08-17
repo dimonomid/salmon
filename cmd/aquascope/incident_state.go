@@ -52,7 +52,12 @@ type latestOngoingIncidents struct {
 // tray and the local status webserver.
 type incidentSnapshot struct {
 	Alerting []salmon.ItemWContext
-	Snoozed  []salmon.ItemWContext
+	Snoozed  []snoozedIncident
+}
+
+type snoozedIncident struct {
+	salmon.ItemWContext
+	SnoozedUntil time.Time `json:"snoozedUntil"`
 }
 
 // incidentState is the shared source of truth for AquaScope's current active
@@ -165,11 +170,14 @@ func (s *incidentState) notifyUpdate() {
 
 func (s *incidentState) snapshot() incidentSnapshot {
 	alerting := make([]salmon.ItemWContext, 0)
-	snoozed := make([]salmon.ItemWContext, 0)
+	snoozed := make([]snoozedIncident, 0)
 	now := time.Now()
 	for _, item := range s.ongoingIncidents.Get() {
-		if s.snoozes.IsSnoozed(string(item.Key), now) {
-			snoozed = append(snoozed, item)
+		if snoozedUntil, ok := s.snoozes.snoozedUntil(string(item.Key), now); ok {
+			snoozed = append(snoozed, snoozedIncident{
+				ItemWContext: item,
+				SnoozedUntil: snoozedUntil,
+			})
 		} else {
 			alerting = append(alerting, item)
 		}
@@ -220,6 +228,14 @@ func (s *snoozeState) IsSnoozed(key string, now time.Time) bool {
 
 	entry, exists := s.snoozed[key]
 	return exists && entry.SnoozedUntil.After(now)
+}
+
+func (s *snoozeState) snoozedUntil(key string, now time.Time) (time.Time, bool) {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+
+	entry, exists := s.snoozed[key]
+	return entry.SnoozedUntil, exists && entry.SnoozedUntil.After(now)
 }
 
 // expire removes snoozes whose expiration time has passed and returns their

@@ -54,7 +54,7 @@ type statusWebsocketClient struct {
 type statusWebsocketMessage struct {
 	OngoingIncidents struct {
 		Alerting []salmon.ItemWContext `json:"alerting"`
-		Snoozed  []salmon.ItemWContext `json:"snoozed"`
+		Snoozed  []snoozedIncident     `json:"snoozed"`
 	} `json:"ongoingIncidents"`
 }
 
@@ -83,7 +83,7 @@ func (s *statusWebserver) message() statusWebsocketMessage {
 
 	message := statusWebsocketMessage{}
 	message.OngoingIncidents.Alerting = append([]salmon.ItemWContext(nil), s.snapshot.Alerting...)
-	message.OngoingIncidents.Snoozed = append([]salmon.ItemWContext(nil), s.snapshot.Snoozed...)
+	message.OngoingIncidents.Snoozed = append([]snoozedIncident(nil), s.snapshot.Snoozed...)
 	return message
 }
 
