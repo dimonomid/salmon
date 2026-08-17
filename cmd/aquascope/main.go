@@ -80,6 +80,9 @@ func onReady() {
 			fmt.Println(string(d))
 
 			for _, item := range notif.OngoingIncidents.Added {
+				if incidentState.IsSnoozed(string(item.Key)) {
+					continue
+				}
 				notify.Push(string(item.State)+": "+string(item.Key), item.Comment, "", notificator.UR_NORMAL)
 			}
 
@@ -88,6 +91,9 @@ func onReady() {
 			// repeatedly while the underlying incident is still the same.
 
 			for _, item := range notif.OngoingIncidents.Removed {
+				if incidentState.IsSnoozed(string(item.Key)) {
+					continue
+				}
 				notify.Push("OK: "+string(item.Key), "", "", notificator.UR_NORMAL)
 			}
 

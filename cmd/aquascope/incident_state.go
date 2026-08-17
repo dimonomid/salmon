@@ -140,6 +140,11 @@ func (s *incidentState) Unsnooze(key string) error {
 	return nil
 }
 
+// IsSnoozed reports whether a key is currently suppressed from notifications.
+func (s *incidentState) IsSnoozed(key string) bool {
+	return s.snoozes.IsSnoozed(key, time.Now())
+}
+
 // watchSnoozeExpirations refreshes consumers periodically so expired snoozes
 // are noticed even if no new incident snapshot arrives from the server.
 func (s *incidentState) watchSnoozeExpirations() {
