@@ -200,6 +200,27 @@ var _assetsWebrootAppCss = []byte(`.incident {
   width: 24px;
   height: 24px;
 }
+
+.snooze-controls {
+  margin: 0.4em 0;
+}
+
+.snooze-controls button {
+  margin-left: 0.3em;
+}
+
+.snoozed-list {
+  background: #e5e5e5;
+  padding: 0.5em;
+}
+
+.snoozed-incident {
+  background: #e5e5e5;
+}
+
+.snoozed-summary button {
+  margin-left: 0.5em;
+}
 `)
 
 func assetsWebrootAppCssBytes() ([]byte, error) {
@@ -212,7 +233,7 @@ func assetsWebrootAppCss() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "assets/webroot/app.css", size: 180, mode: os.FileMode(420), modTime: time.Unix(1, 0)}
+	info := bindataFileInfo{name: "assets/webroot/app.css", size: 429, mode: os.FileMode(420), modTime: time.Unix(1, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -241,17 +262,12 @@ function iconURL(item) {
   return "/icons/salmon_red.png";
 }
 
-function render(items) {
-  incidents.replaceChildren();
+let snoozedVisible = false;
 
-  if (items.length === 0) {
-    incidents.textContent = "No ongoing incidents.";
-    return;
-  }
-
+function renderIncidentList(items, container, isSnoozed) {
   for (const item of items) {
     const table = document.createElement("table");
-    table.className = "incident";
+    table.className = isSnoozed ? "incident snoozed-incident" : "incident";
 
     const fields = [
       ["key", item.key],
@@ -283,8 +299,87 @@ function render(items) {
       valueCell.textContent = value;
     }
 
-    incidents.appendChild(table);
-    incidents.appendChild(document.createElement("hr"));
+    container.appendChild(table);
+
+    const controls = document.createElement("div");
+    controls.className = "snooze-controls";
+    if (isSnoozed) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = "Unsnooze";
+      button.addEventListener("click", () => unsnoozeIncident(item.key));
+      controls.appendChild(button);
+    } else {
+      controls.appendChild(document.createTextNode("Snooze for: "));
+      for (const duration of ["30m", "1h", "4h", "6h", "12h", "1d", "7d", "forever"]) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = duration;
+        button.addEventListener("click", () => snoozeIncident(item.key, duration));
+        controls.appendChild(button);
+      }
+    }
+    container.appendChild(controls);
+    container.appendChild(document.createElement("hr"));
+  }
+}
+
+function render(alertingItems, snoozedItems) {
+  alertingItems = alertingItems || [];
+  snoozedItems = snoozedItems || [];
+  incidents.replaceChildren();
+
+  if (alertingItems.length === 0) {
+    incidents.appendChild(document.createTextNode("No ongoing incidents."));
+  } else {
+    renderIncidentList(alertingItems, incidents, false);
+  }
+
+  const snoozedSummary = document.createElement("div");
+  snoozedSummary.className = "snoozed-summary";
+  snoozedSummary.appendChild(document.createTextNode(` + "`" + `Snoozed: ${snoozedItems.length}` + "`" + `));
+
+  if (snoozedItems.length > 0) {
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.textContent = snoozedVisible ? "Hide" : "Show";
+    toggle.addEventListener("click", () => {
+      snoozedVisible = !snoozedVisible;
+      render(alertingItems, snoozedItems);
+    });
+    snoozedSummary.appendChild(toggle);
+  }
+  incidents.appendChild(snoozedSummary);
+
+  if (snoozedVisible && snoozedItems.length > 0) {
+    const snoozedList = document.createElement("div");
+    snoozedList.className = "snoozed-list";
+    renderIncidentList(snoozedItems, snoozedList, true);
+    incidents.appendChild(snoozedList);
+  }
+}
+
+async function snoozeIncident(key, duration) {
+  const response = await fetch("/api/v1/snooze", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({key, duration}),
+  });
+
+  if (!response.ok) {
+    connectionStatus.textContent = "Failed to snooze incident";
+  }
+}
+
+async function unsnoozeIncident(key) {
+  const response = await fetch("/api/v1/unsnooze", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({key}),
+  });
+
+  if (!response.ok) {
+    connectionStatus.textContent = "Failed to unsnooze incident";
   }
 }
 
@@ -298,7 +393,7 @@ function connect() {
 
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data);
-    render(message.ongoingIncidents.total);
+    render(message.ongoingIncidents.alerting, message.ongoingIncidents.snoozed);
   };
 
   socket.onclose = () => {
@@ -322,7 +417,7 @@ func assetsWebrootAppJs() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "assets/webroot/app.js", size: 2407, mode: os.FileMode(420), modTime: time.Unix(1, 0)}
+	info := bindataFileInfo{name: "assets/webroot/app.js", size: 5037, mode: os.FileMode(420), modTime: time.Unix(1, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }

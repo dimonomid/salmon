@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -17,45 +18,27 @@ import (
 
 const defPort = 41991
 
-// latestOngoingIncidents keeps a copy of the most recently combined incident
-// snapshot for the local status UI.
-type latestOngoingIncidents struct {
-	mtx   sync.RWMutex
-	items []salmon.ItemWContext
-}
-
-// Set replaces the snapshot with copies of the supplied items, so later
-// mutations by the websocket-combiner goroutine cannot affect the status UI.
-func (o *latestOngoingIncidents) Set(items []*salmon.ItemWContext) {
-	o.mtx.Lock()
-	defer o.mtx.Unlock()
-
-	o.items = make([]salmon.ItemWContext, 0, len(items))
-	for _, item := range items {
-		if item != nil {
-			o.items = append(o.items, *item)
-		}
-	}
-}
-
-// Get returns a copy so HTTP and websocket clients never share mutable items
-// with the websocket-combiner goroutine.
-func (o *latestOngoingIncidents) Get() []salmon.ItemWContext {
-	o.mtx.RLock()
-	defer o.mtx.RUnlock()
-
-	items := make([]salmon.ItemWContext, len(o.items))
-	copy(items, o.items)
-	return items
-}
-
-// statusWebserver serves the local status UI and pushes complete incident
-// snapshots to every browser connected to its websocket endpoint.
+// statusWebserver transports already-classified incident snapshots to the
+// local status UI. Classification itself belongs to incidentState.
 type statusWebserver struct {
-	ongoingIncidents latestOngoingIncidents
+	snapshotMtx sync.RWMutex
+	snapshot    incidentSnapshot
+	onSnooze    func(string, time.Duration) error
+	onUnsnooze  func(string) error
 
 	clientsMtx sync.Mutex
 	clients    map[*statusWebsocketClient]struct{}
+}
+
+// statusWebserverParams contains the application callbacks needed by the
+// status webserver.
+type statusWebserverParams struct {
+	// OnSnooze persists a snooze. The incident-state update hook publishes the
+	// resulting snapshot to connected status pages.
+	OnSnooze func(key string, duration time.Duration) error
+	// OnUnsnooze removes a snooze. The incident-state update hook publishes the
+	// resulting snapshot to connected status pages.
+	OnUnsnooze func(key string) error
 }
 
 // statusWebsocketClient has a single websocket writer and a buffered queue of
@@ -70,29 +53,91 @@ type statusWebsocketClient struct {
 // statusWebsocketMessage is the local browser API payload.
 type statusWebsocketMessage struct {
 	OngoingIncidents struct {
-		Total []salmon.ItemWContext `json:"total"`
+		Alerting []salmon.ItemWContext `json:"alerting"`
+		Snoozed  []salmon.ItemWContext `json:"snoozed"`
 	} `json:"ongoingIncidents"`
 }
 
-func newStatusWebserver() *statusWebserver {
+func newStatusWebserver(params statusWebserverParams) *statusWebserver {
 	return &statusWebserver{
-		clients: make(map[*statusWebsocketClient]struct{}),
+		onSnooze:   params.OnSnooze,
+		onUnsnooze: params.OnUnsnooze,
+		clients:    make(map[*statusWebsocketClient]struct{}),
 	}
 }
 
-// SetOngoingIncidents records a snapshot and publishes it to connected status
-// pages.
-func (s *statusWebserver) SetOngoingIncidents(items []*salmon.ItemWContext) {
-	s.ongoingIncidents.Set(items)
+// SetOngoingIncidents stores and publishes a snapshot already classified by
+// incidentState.
+func (s *statusWebserver) SetOngoingIncidents(snapshot incidentSnapshot) {
+	s.snapshotMtx.Lock()
+	s.snapshot = snapshot
+	s.snapshotMtx.Unlock()
 	s.broadcast(s.message())
 }
 
-// message constructs a complete API snapshot rather than exposing deltas to
-// the browser.
+// message constructs the browser API payload from the latest classified
+// snapshot.
 func (s *statusWebserver) message() statusWebsocketMessage {
+	s.snapshotMtx.RLock()
+	defer s.snapshotMtx.RUnlock()
+
 	message := statusWebsocketMessage{}
-	message.OngoingIncidents.Total = s.ongoingIncidents.Get()
+	message.OngoingIncidents.Alerting = append([]salmon.ItemWContext(nil), s.snapshot.Alerting...)
+	message.OngoingIncidents.Snoozed = append([]salmon.ItemWContext(nil), s.snapshot.Snoozed...)
 	return message
+}
+
+// snoozeRequest is the JSON body accepted by the snooze endpoint.
+type snoozeRequest struct {
+	Key      string `json:"key"`
+	Duration string `json:"duration"`
+}
+
+type unsnoozeRequest struct {
+	Key string `json:"key"`
+}
+
+func (s *statusWebserver) snooze(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	var request snoozeRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "invalid snooze request", http.StatusBadRequest)
+		return
+	}
+	duration, ok := snoozeDurations[request.Duration]
+	if request.Key == "" || !ok {
+		http.Error(w, "invalid snooze key or duration", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.onSnooze(request.Key, duration); err != nil {
+		http.Error(w, "failed to persist snooze", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *statusWebserver) unsnooze(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	var request unsnoozeRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.Key == "" {
+		http.Error(w, "invalid unsnooze request", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.onUnsnooze(request.Key); err != nil {
+		http.Error(w, "failed to persist unsnooze", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // broadcast sends each snapshot to every connected client, in a blocking way
@@ -138,8 +183,6 @@ func (s *statusWebserver) wsConnect(w http.ResponseWriter, r *http.Request) {
 
 	s.clientsMtx.Lock()
 	s.clients[client] = struct{}{}
-	// Send the current snapshot while holding clientsMtx, so subsequent
-	// broadcasts cannot overtake it.
 	client.updates <- s.message()
 	s.clientsMtx.Unlock()
 
@@ -188,6 +231,8 @@ func setupWebserver(statusWebserver *statusWebserver) net.Listener {
 	// The status page and browser websocket share this local HTTP server.
 	http.HandleFunc("/status", serveStatusPage)
 	http.HandleFunc("/api/v1/wsconnect", statusWebserver.wsConnect)
+	http.HandleFunc("/api/v1/snooze", statusWebserver.snooze)
+	http.HandleFunc("/api/v1/unsnooze", statusWebserver.unsnooze)
 	// Reuse the same image assets as the systray icon in the status UI.
 	for _, iconName := range []string{"gray", "green", "magenta", "yellow", "red"} {
 		iconAssetPath := fmt.Sprintf("assets/salmon_%s.png", iconName)
@@ -197,7 +242,6 @@ func setupWebserver(statusWebserver *statusWebserver) net.Listener {
 	}
 
 	http.Handle("/", noStoreHandler(webrootFileServer()))
-
 	return listener
 }
 

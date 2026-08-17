@@ -1,0 +1,279 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"os"
+	"sync"
+	"time"
+
+	"github.com/dimonomid/salmon"
+)
+
+// snoozeDurations are the durations accepted by the status UI and API.
+var snoozeDurations = map[string]time.Duration{
+	"30m":     30 * time.Minute,
+	"1h":      time.Hour,
+	"4h":      4 * time.Hour,
+	"6h":      6 * time.Hour,
+	"12h":     12 * time.Hour,
+	"1d":      24 * time.Hour,
+	"7d":      7 * 24 * time.Hour,
+	"forever": 100 * 365 * 24 * time.Hour,
+}
+
+// snoozeEntry is the on-disk representation of one incident's snooze expiry.
+type snoozeEntry struct {
+	SnoozedUntil time.Time `json:"snoozed_until"`
+}
+
+// persistedAquascopeState is the complete on-disk ~/.aquascope_state.json
+// structure.
+type persistedAquascopeState struct {
+	Snoozed map[string]snoozeEntry `json:"snoozed"`
+}
+
+// snoozeState owns the persisted snooze map and serializes concurrent updates.
+type snoozeState struct {
+	mtx     sync.RWMutex
+	path    string
+	snoozed map[string]snoozeEntry
+}
+
+// latestOngoingIncidents keeps a copy of the most recently combined incident
+// snapshot for the local status UI and incident-state classifier.
+type latestOngoingIncidents struct {
+	mtx   sync.RWMutex
+	items []salmon.ItemWContext
+}
+
+// incidentSnapshot is the shared, already-classified view consumed by the
+// tray and the local status webserver.
+type incidentSnapshot struct {
+	Alerting []salmon.ItemWContext
+	Snoozed  []salmon.ItemWContext
+}
+
+// incidentState is the shared source of truth for AquaScope's current active
+// incidents and persisted snooze decisions. It produces the classified
+// snapshot consumed by both the tray icon and the status webserver.
+type incidentState struct {
+	ongoingIncidents latestOngoingIncidents
+	snoozes          *snoozeState
+
+	// OnUpdate is called after the classified snapshot changes. The application
+	// uses it to publish the same snapshot to the webserver and tray.
+	OnUpdate func(snapshot incidentSnapshot)
+}
+
+// newIncidentState loads the persisted snoozes and initializes the shared
+// active-incident classifier.
+func newIncidentState(path string) (*incidentState, error) {
+	snoozes, err := newSnoozeState(path)
+	if err != nil {
+		return nil, err
+	}
+	state := &incidentState{snoozes: snoozes}
+	go state.watchSnoozeExpirations()
+	return state, nil
+}
+
+// newSnoozeState loads an existing state file or creates an empty one.
+func newSnoozeState(path string) (*snoozeState, error) {
+	state := &snoozeState{path: path, snoozed: make(map[string]snoozeEntry)}
+	data, err := ioutil.ReadFile(path)
+	if os.IsNotExist(err) {
+		if err := state.writeLocked(state.snoozed); err != nil {
+			return nil, err
+		}
+		return state, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var persisted persistedAquascopeState
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		return nil, err
+	}
+	if persisted.Snoozed != nil {
+		state.snoozed = persisted.Snoozed
+	}
+	return state, nil
+}
+
+// Update stores the current active incidents and classifies them according to
+// the persisted snooze state.
+func (s *incidentState) Update(items []*salmon.ItemWContext) incidentSnapshot {
+	s.ongoingIncidents.Set(items)
+	snapshot := s.snapshot()
+	if s.OnUpdate != nil {
+		s.OnUpdate(snapshot)
+	}
+	return snapshot
+}
+
+// Snooze persists a snooze and notifies the update hook of the new snapshot.
+func (s *incidentState) Snooze(key string, duration time.Duration) error {
+	if err := s.snoozes.Snooze(key, duration); err != nil {
+		return err
+	}
+	s.notifyUpdate()
+	return nil
+}
+
+// Unsnooze removes a persisted snooze and notifies the update hook of the new
+// snapshot.
+func (s *incidentState) Unsnooze(key string) error {
+	if err := s.snoozes.Unsnooze(key); err != nil {
+		return err
+	}
+	s.notifyUpdate()
+	return nil
+}
+
+// watchSnoozeExpirations refreshes consumers periodically so expired snoozes
+// are noticed even if no new incident snapshot arrives from the server.
+func (s *incidentState) watchSnoozeExpirations() {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		<-ticker.C
+		changed, err := s.snoozes.expire()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to expire snoozes: %s\n", err)
+			continue
+		}
+		if changed {
+			s.notifyUpdate()
+		}
+	}
+}
+
+func (s *incidentState) notifyUpdate() {
+	if s.OnUpdate != nil {
+		s.OnUpdate(s.snapshot())
+	}
+}
+
+func (s *incidentState) snapshot() incidentSnapshot {
+	alerting := make([]salmon.ItemWContext, 0)
+	snoozed := make([]salmon.ItemWContext, 0)
+	now := time.Now()
+	for _, item := range s.ongoingIncidents.Get() {
+		if s.snoozes.IsSnoozed(string(item.Key), now) {
+			snoozed = append(snoozed, item)
+		} else {
+			alerting = append(alerting, item)
+		}
+	}
+	return incidentSnapshot{Alerting: alerting, Snoozed: snoozed}
+}
+
+// Snooze marks the given key as snoozed for the given duration.
+func (s *snoozeState) Snooze(key string, duration time.Duration) error {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+
+	updated := make(map[string]snoozeEntry, len(s.snoozed)+1)
+	for existingKey, entry := range s.snoozed {
+		updated[existingKey] = entry
+	}
+	updated[key] = snoozeEntry{SnoozedUntil: time.Now().Add(duration)}
+
+	if err := s.writeLocked(updated); err != nil {
+		return err
+	}
+	s.snoozed = updated
+	return nil
+}
+
+func (s *snoozeState) Unsnooze(key string) error {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+
+	updated := make(map[string]snoozeEntry, len(s.snoozed))
+	for existingKey, entry := range s.snoozed {
+		if existingKey != key {
+			updated[existingKey] = entry
+		}
+	}
+
+	if err := s.writeLocked(updated); err != nil {
+		return err
+	}
+	s.snoozed = updated
+	return nil
+}
+
+// IsSnoozed reports whether the entry exists and has not expired at now.
+func (s *snoozeState) IsSnoozed(key string, now time.Time) bool {
+	s.mtx.RLock()
+	defer s.mtx.RUnlock()
+
+	entry, exists := s.snoozed[key]
+	return exists && entry.SnoozedUntil.After(now)
+}
+
+// expire removes snoozes whose expiration time has passed. It reports whether
+// the persisted state changed.
+func (s *snoozeState) expire() (bool, error) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+
+	now := time.Now()
+	updated := make(map[string]snoozeEntry, len(s.snoozed))
+	changed := false
+	for key, entry := range s.snoozed {
+		if entry.SnoozedUntil.After(now) {
+			updated[key] = entry
+		} else {
+			changed = true
+		}
+	}
+	if !changed {
+		return false, nil
+	}
+	if err := s.writeLocked(updated); err != nil {
+		return false, err
+	}
+	s.snoozed = updated
+	return true, nil
+}
+
+// writeLocked writes a human-readable state file. The caller must hold mtx
+// when changing the live snooze map.
+func (s *snoozeState) writeLocked(snoozed map[string]snoozeEntry) error {
+	data, err := json.MarshalIndent(persistedAquascopeState{Snoozed: snoozed}, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return ioutil.WriteFile(s.path, data, 0600)
+}
+
+// Set replaces the snapshot with copies of the supplied items.
+func (o *latestOngoingIncidents) Set(items []*salmon.ItemWContext) {
+	o.mtx.Lock()
+	defer o.mtx.Unlock()
+
+	o.items = make([]salmon.ItemWContext, 0, len(items))
+	for _, item := range items {
+		if item != nil {
+			o.items = append(o.items, *item)
+		}
+	}
+}
+
+// Get returns a copy so consumers never share mutable items with the
+// websocket-combiner goroutine.
+func (o *latestOngoingIncidents) Get() []salmon.ItemWContext {
+	o.mtx.RLock()
+	defer o.mtx.RUnlock()
+
+	items := make([]salmon.ItemWContext, len(o.items))
+	copy(items, o.items)
+	return items
+}

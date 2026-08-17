@@ -43,7 +43,7 @@ func loadTrayIcons() {
 	iconTransparent = MustAsset("assets/salmon_transparent.png")
 }
 
-func getOverallStateFromItems(items []*salmon.ItemWContext) overallState {
+func getOverallStateFromItems(items []salmon.ItemWContext) overallState {
 	ret := overallStateOK
 
 	for _, item := range items {
@@ -56,7 +56,7 @@ func getOverallStateFromItems(items []*salmon.ItemWContext) overallState {
 	return ret
 }
 
-func getOverallStateFromItem(item *salmon.ItemWContext) overallState {
+func getOverallStateFromItem(item salmon.ItemWContext) overallState {
 	if item.State == salmon.ItemStateOK {
 		return overallStateOK
 	}

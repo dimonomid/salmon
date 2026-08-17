@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/user"
+	"path/filepath"
 
 	"github.com/0xAX/notificator"
 	"github.com/benbjohnson/clock"
@@ -58,13 +59,25 @@ func onReady() {
 	loadTrayIcons()
 
 	applyIcon(overallStateUnknown)
-	statusWebserver := newStatusWebserver()
+	incidentState, err := newIncidentState(filepath.Join(usr.HomeDir, ".aquascope_state.json"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load AquaScope state: %s\n", err)
+		os.Exit(1)
+	}
+	statusWebserver := newStatusWebserver(statusWebserverParams{
+		OnSnooze:   incidentState.Snooze,
+		OnUnsnooze: incidentState.Unsnooze,
+	})
+	incidentState.OnUpdate = func(snapshot incidentSnapshot) {
+		statusWebserver.SetOngoingIncidents(snapshot)
+		applyIcon(getOverallStateFromItems(snapshot.Alerting))
+	}
 
 	c, err := wsclient.NewCombiner(wsclient.CombinerParams{
 		Config: cfg.WSClient,
 
 		OngoingIncidentsHandler: func(notif *salmon.Notification) {
-			statusWebserver.SetOngoingIncidents(notif.OngoingIncidents.Total)
+			snapshot := incidentState.Update(notif.OngoingIncidents.Total)
 
 			d, _ := json.MarshalIndent(notif, "", "  ")
 			fmt.Println(string(d))
@@ -81,10 +94,8 @@ func onReady() {
 				notify.Push("OK: "+string(item.Key), "", "", notificator.UR_NORMAL)
 			}
 
-			state := getOverallStateFromItems(notif.OngoingIncidents.Total)
+			state := getOverallStateFromItems(snapshot.Alerting)
 			fmt.Println("Overall state:", state)
-
-			applyIcon(state)
 		},
 
 		Clock: clock.New(),

@@ -14,3 +14,24 @@
   width: 24px;
   height: 24px;
 }
+
+.snooze-controls {
+  margin: 0.4em 0;
+}
+
+.snooze-controls button {
+  margin-left: 0.3em;
+}
+
+.snoozed-list {
+  background: #e5e5e5;
+  padding: 0.5em;
+}
+
+.snoozed-incident {
+  background: #e5e5e5;
+}
+
+.snoozed-summary button {
+  margin-left: 0.5em;
+}
