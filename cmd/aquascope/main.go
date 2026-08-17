@@ -1,6 +1,3 @@
-//go:generate go-bindata-assetfs -pkg main -nocompress -modtime 1 -mode 420 assets/...
-//go:generate goimports -w -format-only -local=code.cryptowat.ch ./bindata.go
-
 package main
 
 import (

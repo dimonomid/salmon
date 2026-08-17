@@ -1,12 +1,11 @@
 module github.com/dimonomid/salmon
 
-go 1.15
+go 1.16
 
 require (
 	github.com/0xAX/notificator v0.0.0-20210731104411-c42e3d4a43ee
 	github.com/benbjohnson/clock v1.1.0
 	github.com/coreos/go-systemd/v22 v22.3.2
-	github.com/elazarl/go-bindata-assetfs v1.0.1
 	github.com/getlantern/systray v1.2.2
 	github.com/gorilla/websocket v1.4.2
 	github.com/juju/errors v0.0.0-20200330140219-3fe23663418f

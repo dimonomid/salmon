@@ -35,12 +35,12 @@ const (
 )
 
 func loadTrayIcons() {
-	iconSalmonGray = MustAsset("assets/salmon_gray.png")
-	iconSalmonGreen = MustAsset("assets/salmon_green.png")
-	iconSalmonMagenta = MustAsset("assets/salmon_magenta.png")
-	iconSalmonYellow = MustAsset("assets/salmon_yellow.png")
-	iconSalmonRed = MustAsset("assets/salmon_red.png")
-	iconTransparent = MustAsset("assets/salmon_transparent.png")
+	iconSalmonGray = mustEmbeddedAsset("assets/salmon_gray.png")
+	iconSalmonGreen = mustEmbeddedAsset("assets/salmon_green.png")
+	iconSalmonMagenta = mustEmbeddedAsset("assets/salmon_magenta.png")
+	iconSalmonYellow = mustEmbeddedAsset("assets/salmon_yellow.png")
+	iconSalmonRed = mustEmbeddedAsset("assets/salmon_red.png")
+	iconTransparent = mustEmbeddedAsset("assets/salmon_transparent.png")
 }
 
 func getOverallStateFromItems(items []salmon.ItemWContext) overallState {

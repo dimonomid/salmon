@@ -4,13 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
-	"os"
 	"sync"
 	"time"
 
-	assetfs "github.com/elazarl/go-bindata-assetfs"
 	"github.com/gorilla/websocket"
 
 	"github.com/dimonomid/salmon"
@@ -246,7 +245,7 @@ func setupWebserver(statusWebserver *statusWebserver) net.Listener {
 }
 
 func serveStatusPage(w http.ResponseWriter, r *http.Request) {
-	data, err := Asset("assets/webroot/index.html")
+	data, err := fs.ReadFile(embeddedAssets, "assets/webroot/index.html")
 	if err != nil {
 		http.Error(w, "status page is unavailable", http.StatusInternalServerError)
 		return
@@ -259,7 +258,7 @@ func serveStatusPage(w http.ResponseWriter, r *http.Request) {
 
 // serveIcon exposes an embedded systray icon to the local status UI.
 func serveIcon(w http.ResponseWriter, r *http.Request, assetName string) {
-	data, err := Asset(assetName)
+	data, err := fs.ReadFile(embeddedAssets, assetName)
 	if err != nil {
 		http.Error(w, "icon is unavailable", http.StatusInternalServerError)
 		return
@@ -287,16 +286,9 @@ func setNoStoreHeaders(w http.ResponseWriter) {
 }
 
 func webrootFileServer() http.Handler {
-	assetInfo := func(path string) (os.FileInfo, error) {
-		return os.Stat(path)
+	webroot, err := fs.Sub(embeddedAssets, "assets/webroot")
+	if err != nil {
+		panic(err)
 	}
-
-	return http.FileServer(
-		&assetfs.AssetFS{
-			Asset:     Asset,
-			AssetDir:  AssetDir,
-			AssetInfo: assetInfo,
-			Prefix:    "assets/webroot",
-		},
-	)
+	return http.FileServer(http.FS(webroot))
 }
