@@ -1,12 +1,16 @@
 .PHONY: all
 all: salmon aquascope
 
+.PHONY: generate
+generate:
+	go generate ./...
+
 .PHONY: salmon
-salmon:
+salmon: generate
 	cd cmd/salmon && go build
 
 .PHONY: aquascope
-aquascope:
+aquascope: generate
 	cd cmd/aquascope && go build
 
 .PHONY: install

@@ -1,0 +1,16 @@
+.incident {
+  font-family: monospace;
+}
+
+.incident-label {
+  text-align: right;
+}
+
+.incident-icon {
+  vertical-align: top;
+}
+
+.incident-icon img {
+  width: 24px;
+  height: 24px;
+}
