@@ -148,7 +148,7 @@ function connect() {
   const socket = new WebSocket(`${protocol}//${window.location.host}/api/v1/wsconnect`);
 
   socket.onopen = () => {
-    connectionStatus.textContent = "Connected";
+    connectionStatus.textContent = "● UI online";
   };
 
   socket.onmessage = (event) => {
@@ -157,7 +157,7 @@ function connect() {
   };
 
   socket.onclose = () => {
-    connectionStatus.textContent = "Disconnected; reconnecting…";
+    connectionStatus.textContent = "× UI offline; reconnecting...";
     window.setTimeout(connect, 1000);
   };
 
