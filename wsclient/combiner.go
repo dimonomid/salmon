@@ -46,6 +46,8 @@ type CombinerParams struct {
 
 	Clock          clock.Clock
 	ReconnectDelay time.Duration
+	// ConnectionStatusHandler receives per-host connection and heartbeat data.
+	ConnectionStatusHandler func(id string, event ConnectionEvent)
 }
 
 func NewCombiner(params CombinerParams) (*Combiner, error) {
@@ -64,6 +66,7 @@ func NewCombiner(params CombinerParams) (*Combiner, error) {
 		ongoingIncidentsCh := make(chan *salmon.Notification, 32)
 		connErrorCh := make(chan string, 32)
 		serverInternalErrorCh := make(chan string, 32)
+		connectionEventCh := make(chan ConnectionEvent, 32)
 
 		wsc, err := New(Params{
 			Config: cfg,
@@ -72,6 +75,7 @@ func NewCombiner(params CombinerParams) (*Combiner, error) {
 			ConnErrorCh:           connErrorCh,
 			ServerInternalErrorCh: serverInternalErrorCh,
 			ReconnectDelay:        params.ReconnectDelay,
+			ConnectionEventCh:     connectionEventCh,
 		})
 		if err != nil {
 			c.Close()
@@ -85,10 +89,11 @@ func NewCombiner(params CombinerParams) (*Combiner, error) {
 			ongoingIncidentsCh <-chan *salmon.Notification,
 			connErrorCh <-chan string,
 			serverInternalErrorCh <-chan string,
+			connectionEventCh <-chan ConnectionEvent,
 		) {
 			defer c.wg.Done()
-			c.runWSClient(cfg, ongoingIncidentsCh, connErrorCh, serverInternalErrorCh)
-		}(cfg, ongoingIncidentsCh, connErrorCh, serverInternalErrorCh)
+			c.runWSClient(cfg, ongoingIncidentsCh, connErrorCh, serverInternalErrorCh, connectionEventCh)
+		}(cfg, ongoingIncidentsCh, connErrorCh, serverInternalErrorCh, connectionEventCh)
 	}
 
 	return c, nil
@@ -149,11 +154,16 @@ func (c *Combiner) runWSClient(
 	ongoingIncidentsCh <-chan *salmon.Notification,
 	connErrorCh <-chan string,
 	serverInternalErrorCh <-chan string,
+	connectionEventCh <-chan ConnectionEvent,
 ) {
 	for {
 		select {
 		case <-c.closeDone:
 			return
+		case event := <-connectionEventCh:
+			if c.params.ConnectionStatusHandler != nil {
+				c.params.ConnectionStatusHandler(cfg.ID, event)
+			}
 		case notif := <-ongoingIncidentsCh:
 			notif = getPrefixedNotif(notif, cfg.ID)
 

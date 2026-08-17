@@ -62,6 +62,23 @@ type Params struct {
 	ServerInternalErrorCh chan<- string
 	// ReconnectDelay overrides the production reconnect delay when non-zero.
 	ReconnectDelay time.Duration
+	// ConnectionEventCh receives connection and heartbeat events.
+	ConnectionEventCh chan<- ConnectionEvent
+}
+
+// ConnectionEventKind identifies the kind of connection event.
+type ConnectionEventKind string
+
+const (
+	EventKindConnected    ConnectionEventKind = "connected"
+	EventKindDisconnected ConnectionEventKind = "disconnected"
+	EventKindHeartbeat    ConnectionEventKind = "heartbeat"
+)
+
+// ConnectionEvent describes a Salmon connection transition or heartbeat.
+type ConnectionEvent struct {
+	EventKind ConnectionEventKind
+	Time      time.Time
 }
 
 func New(params Params) (*WSClient, error) {
@@ -120,11 +137,13 @@ mainLoop:
 		conn, _, err := websocket.DefaultDialer.Dial(ustr, nil)
 		if err != nil {
 			connError = err.Error()
+			c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindDisconnected, Time: time.Now()})
 			fmt.Println("Connection error:", err)
 			continue mainLoop
 		}
 
 		fmt.Println("Connected")
+		c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindConnected, Time: time.Now()})
 
 		/*
 
@@ -182,6 +201,7 @@ mainLoop:
 				_, message, err := conn.ReadMessage()
 				if err != nil {
 					connError = err.Error()
+					c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindDisconnected, Time: time.Now()})
 					fmt.Println("Read error:", err)
 					return
 				}
@@ -193,6 +213,7 @@ mainLoop:
 
 				if len(message) == 1 && message[0] == 0x00 {
 					// Heartbeat
+					c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindHeartbeat, Time: time.Now()})
 					fmt.Println(c.params.Config.ID, "heartbeat")
 					continue
 				}
@@ -270,5 +291,16 @@ mainLoop:
 				return
 			}
 		}
+	}
+}
+
+func (c *WSClient) sendConnectionEvent(event ConnectionEvent) {
+	if c.params.ConnectionEventCh == nil {
+		return
+	}
+	select {
+	case c.params.ConnectionEventCh <- event:
+	default:
+		fmt.Println("failed to send connection event: buffer full")
 	}
 }

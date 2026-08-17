@@ -2,6 +2,24 @@
   font-family: monospace;
 }
 
+.host-status-table {
+  font-family: monospace;
+}
+
+.host-status-table th,
+.host-status-table td {
+  padding: 0.2em 0.5em;
+  text-align: left;
+}
+
+.status-connected {
+  color: green;
+}
+
+.status-disconnected {
+  color: red;
+}
+
 .incident-label {
   text-align: right;
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/benbjohnson/clock"
@@ -19,7 +20,21 @@ type aquascopeCore struct {
 	notifications   notificator
 	onIconState     func(overallState)
 	// combiner owns all outbound Salmon connections and is closed with the core.
-	combiner *wsclient.Combiner
+	combiner        *wsclient.Combiner
+	hostStatusesMtx sync.RWMutex
+	hostStatuses    map[string]hostStatus
+}
+
+type hostStatus struct {
+	// ID identifies the configured Salmon host.
+	ID string `json:"id"`
+	// Connected reports the latest connection state.
+	Connected bool `json:"connected"`
+	// LastStatusChangeTime is when the connection most recently changed state.
+	LastStatusChangeTime *time.Time `json:"lastStatusChangeTime,omitempty"`
+	// LastHeartbeatTime is when the most recent heartbeat was received.
+	LastHeartbeatTime *time.Time `json:"lastHeartbeatTime,omitempty"`
+	initialized       bool       `json:"-"`
 }
 
 type aquascopeCoreParams struct {
@@ -57,11 +72,16 @@ func newAquascopeCore(params aquascopeCoreParams) (*aquascopeCore, error) {
 		incidentState: incidentState,
 		notifications: params.Notifications,
 		onIconState:   params.OnIconState,
+		hostStatuses:  make(map[string]hostStatus, len(params.Config.Servers)),
+	}
+	for _, server := range params.Config.Servers {
+		core.hostStatuses[server.ID] = hostStatus{ID: server.ID}
 	}
 	core.statusWebserver = newStatusWebserver(statusWebserverParams{
 		OnSnooze:   incidentState.Snooze,
 		OnUnsnooze: incidentState.Unsnooze,
 	})
+	core.publishHostStatuses()
 	incidentState.OnUpdate = core.onIncidentUpdate
 
 	if params.Clock == nil {
@@ -72,11 +92,44 @@ func newAquascopeCore(params aquascopeCoreParams) (*aquascopeCore, error) {
 		OngoingIncidentsHandler: core.onNotification,
 		Clock:                   params.Clock,
 		ReconnectDelay:          params.ReconnectDelay,
+		ConnectionStatusHandler: core.onConnectionEvent,
 	})
 	if err != nil {
 		return nil, err
 	}
 	return core, nil
+}
+
+func (c *aquascopeCore) onConnectionEvent(id string, event wsclient.ConnectionEvent) {
+	c.hostStatusesMtx.Lock()
+	status := c.hostStatuses[id]
+	if event.EventKind == wsclient.EventKindHeartbeat {
+		now := event.Time
+		status.LastHeartbeatTime = &now
+	} else if event.EventKind == wsclient.EventKindConnected || event.EventKind == wsclient.EventKindDisconnected {
+		now := event.Time
+		connected := event.EventKind == wsclient.EventKindConnected
+		if status.initialized && connected == status.Connected {
+			c.hostStatusesMtx.Unlock()
+			return
+		}
+		status.Connected = connected
+		status.initialized = true
+		status.LastStatusChangeTime = &now
+	}
+	c.hostStatuses[id] = status
+	c.hostStatusesMtx.Unlock()
+	c.publishHostStatuses()
+}
+
+func (c *aquascopeCore) publishHostStatuses() {
+	c.hostStatusesMtx.RLock()
+	statuses := make([]hostStatus, 0, len(c.hostStatuses))
+	for _, status := range c.hostStatuses {
+		statuses = append(statuses, status)
+	}
+	c.hostStatusesMtx.RUnlock()
+	c.statusWebserver.SetHostStatuses(statuses)
 }
 
 // Close stops AquaScope's Salmon clients and waits for their worker loops.

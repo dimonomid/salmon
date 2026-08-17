@@ -1,5 +1,9 @@
 const connectionStatus = document.getElementById("connection-status");
+const serverSummary = document.getElementById("server-summary");
+const serverDetailsToggle = document.getElementById("server-details-toggle");
+const hosts = document.getElementById("hosts");
 const incidents = document.getElementById("incidents");
+let hostDetailsVisible = false;
 
 function formatChangeTime(changeTime) {
   const date = new Date(changeTime);
@@ -54,6 +58,68 @@ function formatTimeUntil(snoozedUntil) {
   const days = Math.floor(seconds / 86400);
   return `in ${days} day${days === 1 ? "" : "s"}`;
 }
+
+function formatHostTime(value) {
+  if (!value) {
+    return "never";
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function renderHosts(items) {
+  items = items || [];
+  const online = items.filter((item) => item.connected).length;
+  const offline = items.length - online;
+  serverSummary.replaceChildren();
+  if (items.length > 0) {
+    serverSummary.appendChild(document.createTextNode(`(${online}/${items.length} servers are online`));
+    if (offline > 0) {
+      serverSummary.appendChild(document.createTextNode(", "));
+      const offlineText = document.createElement("span");
+      offlineText.className = "status-disconnected";
+      offlineText.textContent = `${offline} offline`;
+      serverSummary.appendChild(offlineText);
+    }
+    serverSummary.appendChild(document.createTextNode(")"));
+  }
+  serverDetailsToggle.hidden = items.length === 0;
+  serverDetailsToggle.textContent = hostDetailsVisible ? "Hide" : "Details";
+  hosts.hidden = !hostDetailsVisible || items.length === 0;
+  hosts.replaceChildren();
+
+  const table = document.createElement("table");
+  table.className = "host-status-table";
+  const header = table.insertRow();
+  for (const column of ["server", "status", "last status change", "last heartbeat"]) {
+    const cell = document.createElement("th");
+    cell.textContent = column;
+    header.appendChild(cell);
+  }
+  for (const item of items) {
+    const row = table.insertRow();
+    for (const [columnIndex, value] of [
+      item.id,
+      item.connected ? "online" : "offline",
+      formatHostTime(item.lastStatusChangeTime),
+      formatHostTime(item.lastHeartbeatTime),
+    ].entries()) {
+      const cell = row.insertCell();
+      cell.textContent = value;
+      if (columnIndex === 1) {
+        cell.className = item.connected ? "status-connected" : "status-disconnected";
+      }
+    }
+  }
+  hosts.appendChild(table);
+  hosts.appendChild(document.createElement("hr"));
+}
+
+serverDetailsToggle.addEventListener("click", () => {
+  hostDetailsVisible = !hostDetailsVisible;
+  serverDetailsToggle.textContent = hostDetailsVisible ? "Hide" : "Details";
+  hosts.hidden = !hostDetailsVisible;
+});
 
 function iconURL(item) {
   if (item.state === "ok") {
@@ -201,15 +267,21 @@ function connect() {
 
   socket.onopen = () => {
     connectionStatus.textContent = "● UI online";
+    connectionStatus.className = "status-connected";
   };
 
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data);
+    renderHosts(message.hosts);
     render(message.ongoingIncidents.alerting, message.ongoingIncidents.snoozed);
   };
 
   socket.onclose = () => {
     connectionStatus.textContent = "× UI offline; reconnecting...";
+    connectionStatus.className = "status-disconnected";
+    serverSummary.replaceChildren();
+    serverDetailsToggle.hidden = true;
+    hosts.hidden = true;
     window.setTimeout(connect, 1000);
   };
 

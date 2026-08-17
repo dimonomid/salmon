@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 
@@ -20,10 +21,11 @@ const defPort = 41991
 // statusWebserver transports already-classified incident snapshots to the
 // local status UI. Classification itself belongs to incidentState.
 type statusWebserver struct {
-	snapshotMtx sync.RWMutex
-	snapshot    incidentSnapshot
-	onSnooze    func(string, time.Duration) error
-	onUnsnooze  func(string) error
+	snapshotMtx  sync.RWMutex
+	snapshot     incidentSnapshot
+	hostStatuses []hostStatus
+	onSnooze     func(string, time.Duration) error
+	onUnsnooze   func(string) error
 
 	clientsMtx sync.Mutex
 	clients    map[*statusWebsocketClient]struct{}
@@ -55,6 +57,7 @@ type statusWebsocketMessage struct {
 		Alerting []salmon.ItemWContext `json:"alerting"`
 		Snoozed  []snoozedIncident     `json:"snoozed"`
 	} `json:"ongoingIncidents"`
+	Hosts []hostStatus `json:"hosts"`
 }
 
 func newStatusWebserver(params statusWebserverParams) *statusWebserver {
@@ -74,6 +77,14 @@ func (s *statusWebserver) SetOngoingIncidents(snapshot incidentSnapshot) {
 	s.broadcast(s.message())
 }
 
+// SetHostStatuses stores and publishes the latest Salmon connection metadata.
+func (s *statusWebserver) SetHostStatuses(statuses []hostStatus) {
+	s.snapshotMtx.Lock()
+	s.hostStatuses = append([]hostStatus(nil), statuses...)
+	s.snapshotMtx.Unlock()
+	s.broadcast(s.message())
+}
+
 // message constructs the browser API payload from the latest classified
 // snapshot.
 func (s *statusWebserver) message() statusWebsocketMessage {
@@ -83,6 +94,8 @@ func (s *statusWebserver) message() statusWebsocketMessage {
 	message := statusWebsocketMessage{}
 	message.OngoingIncidents.Alerting = append([]salmon.ItemWContext(nil), s.snapshot.Alerting...)
 	message.OngoingIncidents.Snoozed = append([]snoozedIncident(nil), s.snapshot.Snoozed...)
+	message.Hosts = append([]hostStatus(nil), s.hostStatuses...)
+	sort.Slice(message.Hosts, func(i, j int) bool { return message.Hosts[i].ID < message.Hosts[j].ID })
 	return message
 }
 
