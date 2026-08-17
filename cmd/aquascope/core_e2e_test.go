@@ -182,6 +182,7 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(core.Close)
 	status := newLocalTestServer(rootHandler(core.statusWebserver))
 	t.Cleanup(status.Close)
 	statusConn := connectStatus(t, status.URL)
@@ -237,6 +238,7 @@ func TestCoreSnoozedIncidentDoesNotNotify(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(core.Close)
 	status := newLocalTestServer(rootHandler(core.statusWebserver))
 	t.Cleanup(status.Close)
 	statusConn := connectStatus(t, status.URL)

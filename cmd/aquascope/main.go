@@ -15,6 +15,9 @@ import (
 
 var notify notificator
 
+// core owns AquaScope's background Salmon connections for shutdown cleanup.
+var core *aquascopeCore
+
 func main() {
 	// NOTE: Run should be the only thing which executes in main; otherwise
 	// the magic done by runtime.LockOSThread() (which is called from
@@ -50,7 +53,7 @@ func onReady() {
 	loadTrayIcons()
 
 	applyIcon(overallStateUnknown)
-	core, err := newAquascopeCore(aquascopeCoreParams{
+	core, err = newAquascopeCore(aquascopeCoreParams{
 		Config:        cfg.WSClient,
 		StatePath:     filepath.Join(usr.HomeDir, ".aquascope_state.json"),
 		Notifications: notify,
@@ -84,5 +87,8 @@ func onReady() {
 }
 
 func onExit() {
+	if core != nil {
+		core.Close()
+	}
 	fmt.Println("Exiting")
 }

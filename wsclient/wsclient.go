@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/dimonomid/salmon"
@@ -45,8 +46,12 @@ const (
 )
 
 type WSClient struct {
-	params    Params
+	params Params
+	// interrupt is closed to stop dialing, reconnect delays, and the active
+	// connection.
 	interrupt chan struct{}
+	// closeOnce makes Close safe to call from multiple cleanup paths.
+	closeOnce sync.Once
 }
 
 type Params struct {
@@ -68,8 +73,10 @@ func New(params Params) (*WSClient, error) {
 	return c, nil
 }
 
+// Close stops the client and returns immediately; the owning Combiner waits
+// for the client worker to finish.
 func (c *WSClient) Close() {
-	c.interrupt <- struct{}{}
+	c.closeOnce.Do(func() { close(c.interrupt) })
 }
 
 func (c *WSClient) eventLoop() {
@@ -77,10 +84,22 @@ func (c *WSClient) eventLoop() {
 
 mainLoop:
 	for i := 0; true; i++ {
-		c.params.ConnErrorCh <- connError
+		select {
+		case c.params.ConnErrorCh <- connError:
+		case <-c.interrupt:
+			return
+		}
 
 		if i > 0 {
-			time.Sleep(5 * time.Second)
+			timer := time.NewTimer(5 * time.Second)
+			select {
+			case <-timer.C:
+			case <-c.interrupt:
+				if !timer.Stop() {
+					<-timer.C
+				}
+				return
+			}
 		}
 
 		u := url.URL{
@@ -127,7 +146,12 @@ mainLoop:
 		*/
 
 		connError = ""
-		c.params.ConnErrorCh <- connError
+		select {
+		case c.params.ConnErrorCh <- connError:
+		case <-c.interrupt:
+			_ = conn.Close()
+			return
+		}
 
 		disconnected := make(chan struct{})
 
@@ -235,14 +259,8 @@ mainLoop:
 
 			case <-c.interrupt:
 				fmt.Println("Closing connection")
-
-				// Cleanly close the connection by sending a close message and then
-				// waiting (with timeout) for the server to close the connection.
-				err := conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-				if err != nil {
-					conn.Close()
-				}
-
+				readTimer.Stop()
+				_ = conn.Close()
 				return
 			}
 		}

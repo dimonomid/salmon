@@ -17,6 +17,8 @@ type aquascopeCore struct {
 	statusWebserver *statusWebserver
 	notifications   notificator
 	onIconState     func(overallState)
+	// combiner owns all outbound Salmon connections and is closed with the core.
+	combiner *wsclient.Combiner
 }
 
 type aquascopeCoreParams struct {
@@ -47,7 +49,7 @@ func newAquascopeCore(params aquascopeCoreParams) (*aquascopeCore, error) {
 	if params.Clock == nil {
 		params.Clock = clock.New()
 	}
-	_, err = wsclient.NewCombiner(wsclient.CombinerParams{
+	core.combiner, err = wsclient.NewCombiner(wsclient.CombinerParams{
 		Config:                  params.Config,
 		OngoingIncidentsHandler: core.onNotification,
 		Clock:                   params.Clock,
@@ -56,6 +58,13 @@ func newAquascopeCore(params aquascopeCoreParams) (*aquascopeCore, error) {
 		return nil, err
 	}
 	return core, nil
+}
+
+// Close stops AquaScope's Salmon clients and waits for their worker loops.
+func (c *aquascopeCore) Close() {
+	if c.combiner != nil {
+		c.combiner.Close()
+	}
 }
 
 func (c *aquascopeCore) onIncidentUpdate(snapshot incidentSnapshot) {

@@ -23,6 +23,13 @@ type Combiner struct {
 
 	totalByID map[string][]*salmon.ItemWContext
 	totalMtx  sync.Mutex
+	// clients are retained so Close can stop every per-server connection.
+	clients []*WSClient
+	// closeOnce and closeDone coordinate shutdown between all combiner loops.
+	closeOnce sync.Once
+	closeDone chan struct{}
+	// wg tracks the per-server loops that consume client events.
+	wg sync.WaitGroup
 }
 
 type CombinerParams struct {
@@ -40,6 +47,7 @@ func NewCombiner(params CombinerParams) (*Combiner, error) {
 		params: params,
 
 		totalByID: map[string][]*salmon.ItemWContext{},
+		closeDone: make(chan struct{}),
 	}
 
 	c.internalTracker = statestracker.NewItemStatesTracker(statestracker.ItemStatesTrackerParams{
@@ -51,8 +59,6 @@ func NewCombiner(params CombinerParams) (*Combiner, error) {
 		connErrorCh := make(chan string, 32)
 		serverInternalErrorCh := make(chan string, 32)
 
-		go c.runWSClient(cfg, ongoingIncidentsCh, connErrorCh, serverInternalErrorCh)
-
 		wsc, err := New(Params{
 			Config: cfg,
 
@@ -61,13 +67,35 @@ func NewCombiner(params CombinerParams) (*Combiner, error) {
 			ServerInternalErrorCh: serverInternalErrorCh,
 		})
 		if err != nil {
+			c.Close()
 			return nil, errors.Annotatef(err, "creating wsclient #%d (%s)", i, cfg.ID)
 		}
 
-		_ = wsc
+		c.clients = append(c.clients, wsc)
+		c.wg.Add(1)
+		go func(
+			cfg ConfigServer,
+			ongoingIncidentsCh <-chan *salmon.Notification,
+			connErrorCh <-chan string,
+			serverInternalErrorCh <-chan string,
+		) {
+			defer c.wg.Done()
+			c.runWSClient(cfg, ongoingIncidentsCh, connErrorCh, serverInternalErrorCh)
+		}(cfg, ongoingIncidentsCh, connErrorCh, serverInternalErrorCh)
 	}
 
 	return c, nil
+}
+
+// Close stops all Salmon connections and waits for their combiner loops.
+func (c *Combiner) Close() {
+	c.closeOnce.Do(func() {
+		close(c.closeDone)
+		for _, client := range c.clients {
+			client.Close()
+		}
+		c.wg.Wait()
+	})
 }
 
 func (c *Combiner) applyNotification(id string, notif *salmon.Notification) {
@@ -115,9 +143,10 @@ func (c *Combiner) runWSClient(
 	connErrorCh <-chan string,
 	serverInternalErrorCh <-chan string,
 ) {
-	// TODO: implement teardown
 	for {
 		select {
+		case <-c.closeDone:
+			return
 		case notif := <-ongoingIncidentsCh:
 			notif = getPrefixedNotif(notif, cfg.ID)
 
