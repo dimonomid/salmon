@@ -21,6 +21,10 @@ type Combiner struct {
 	params CombinerParams
 
 	internalTracker *statestracker.ItemStatesTracker
+	// internalTrackerMtx serializes FeedItems, whose tracker maps are not
+	// internally synchronized while multiple server loops report connection
+	// changes concurrently.
+	internalTrackerMtx sync.Mutex
 
 	totalByID map[string][]*salmon.ItemWContext
 	totalMtx  sync.Mutex
@@ -162,6 +166,7 @@ func (c *Combiner) runWSClient(
 				state = salmon.ItemStateError
 			}
 
+			c.internalTrackerMtx.Lock()
 			notif := c.internalTracker.FeedItems(map[salmon.ItemKey]*salmon.Item{
 				connKey: &salmon.Item{
 					Key:     connKey,
@@ -169,6 +174,7 @@ func (c *Combiner) runWSClient(
 					Comment: err,
 				},
 			})
+			c.internalTrackerMtx.Unlock()
 
 			// If nothing has changed, we're done.
 			if notif == nil {
