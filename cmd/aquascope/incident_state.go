@@ -60,6 +60,16 @@ type snoozedIncident struct {
 	SnoozedUntil time.Time `json:"snoozedUntil"`
 }
 
+// SnoozedItems returns the incident data without snooze metadata for state
+// aggregation by consumers such as the tray icon.
+func (s incidentSnapshot) SnoozedItems() []salmon.ItemWContext {
+	items := make([]salmon.ItemWContext, 0, len(s.Snoozed))
+	for _, item := range s.Snoozed {
+		items = append(items, item.ItemWContext)
+	}
+	return items
+}
+
 // incidentState is the shared source of truth for AquaScope's current active
 // incidents and persisted snooze decisions. It produces the classified
 // snapshot consumed by both the tray icon and the status webserver.

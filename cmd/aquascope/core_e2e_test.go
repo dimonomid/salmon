@@ -578,7 +578,9 @@ func TestStatusWebSocketReconnectReceivesLatestSnapshot(t *testing.T) {
 	_ = firstConnection.Close()
 
 	secondConnection := connectStatus(t, status.URL)
-	message := readStatus(t, secondConnection)
+	message := readStatusUntil(t, secondConnection, func(message statusMessage) bool {
+		return hasAlertingKey(message, "server.disk")
+	})
 	if len(message.OngoingIncidents.Alerting) != 1 || string(message.OngoingIncidents.Alerting[0].Key) != "server.disk" {
 		t.Fatalf("reconnected browser did not receive latest snapshot: %#v", message.OngoingIncidents)
 	}

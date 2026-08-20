@@ -52,7 +52,7 @@ func onReady() {
 
 	loadTrayIcons()
 
-	applyIcon(overallStateUnknown)
+	applyIcon(trayState{Alerting: overallStateUnknown})
 	core, err = newAquascopeCore(aquascopeCoreParams{
 		Config:        cfg.WSClient,
 		StatePath:     filepath.Join(usr.HomeDir, ".aquascope_state.json"),

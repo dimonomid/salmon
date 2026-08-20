@@ -18,7 +18,7 @@ type aquascopeCore struct {
 	incidentState   *incidentState
 	statusWebserver *statusWebserver
 	notifications   notificator
-	onIconState     func(overallState)
+	onIconState     func(trayState)
 	// combiner owns all outbound Salmon connections and is closed with the core.
 	combiner        *wsclient.Combiner
 	hostStatusesMtx sync.RWMutex
@@ -37,6 +37,13 @@ type hostStatus struct {
 	initialized       bool       `json:"-"`
 }
 
+// trayState is the already-aggregated state needed to render the tray icon.
+// Snoozed is nil when no snoozed incidents need an overlay.
+type trayState struct {
+	Alerting overallState
+	Snoozed  *overallState
+}
+
 type aquascopeCoreParams struct {
 	// Config describes the Salmon servers AquaScope should connect to.
 	Config wsclient.Config
@@ -44,8 +51,8 @@ type aquascopeCoreParams struct {
 	StatePath string
 	// Notifications receives desktop notification events.
 	Notifications notificator
-	// OnIconState applies the overall incident state to the tray icon.
-	OnIconState func(overallState)
+	// OnIconState applies the aggregated incident state to the tray icon.
+	OnIconState func(trayState)
 	// Clock supplies time to the incident combiner; tests can provide a fake.
 	Clock clock.Clock
 	// ReconnectDelay overrides the production 5*time.Second reconnect delay
@@ -142,7 +149,12 @@ func (c *aquascopeCore) Close() {
 func (c *aquascopeCore) onIncidentUpdate(snapshot incidentSnapshot) {
 	c.statusWebserver.SetOngoingIncidents(snapshot)
 	if c.onIconState != nil {
-		c.onIconState(getOverallStateFromItems(snapshot.Alerting))
+		state := trayState{Alerting: getOverallStateFromItems(snapshot.Alerting)}
+		if len(snapshot.Snoozed) > 0 {
+			snoozed := getOverallStateFromItems(snapshot.SnoozedItems())
+			state.Snoozed = &snoozed
+		}
+		c.onIconState(state)
 	}
 }
 
