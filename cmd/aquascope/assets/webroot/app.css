@@ -1,9 +1,28 @@
+@font-face {
+  font-family: "Departure Mono";
+  src: url("/DepartureMono-Regular.woff") format("woff");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+body {
+  font-family: "Departure Mono", monospace;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
 .incident {
-  font-family: monospace;
+  font-family: inherit;
 }
 
 .host-status-table {
-  font-family: monospace;
+  font-family: inherit;
 }
 
 .host-status-table th,
