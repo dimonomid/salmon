@@ -301,7 +301,7 @@ function connect() {
   const socket = new WebSocket(`${protocol}//${window.location.host}/api/v1/wsconnect`);
 
   socket.onopen = () => {
-    connectionStatus.textContent = "● UI online";
+    connectionStatus.textContent = "▪ UI online";
     connectionStatus.className = "status-connected";
   };
 
