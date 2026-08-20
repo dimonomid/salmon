@@ -69,6 +69,10 @@ function formatHostTime(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
+function formatIncidentCount(count) {
+  return `${count} ${count === 1 ? "incident" : "incidents"}`;
+}
+
 function renderHosts(items) {
   items = items || [];
   const online = items.filter((item) => item.connected).length;
@@ -203,7 +207,7 @@ function render(alertingItems, snoozedItems) {
   alertingItems = alertingItems || [];
   snoozedItems = snoozedItems || [];
 
-  incidentSummary.textContent = `${alertingItems.length} incidents`;
+  incidentSummary.textContent = formatIncidentCount(alertingItems.length);
   if (snoozedItems.length > 0) {
     incidentSummary.appendChild(document.createTextNode(` + ${snoozedItems.length} snoozed`));
   }

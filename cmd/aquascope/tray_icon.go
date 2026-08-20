@@ -130,7 +130,11 @@ func applyIcon(state trayState) {
 
 // trayStatusTitle summarizes active and snoozed incidents in the tray menu.
 func trayStatusTitle(state trayState) string {
-	title := fmt.Sprintf("Status: %d incidents", state.AlertingCount)
+	incidentLabel := "incidents"
+	if state.AlertingCount == 1 {
+		incidentLabel = "incident"
+	}
+	title := fmt.Sprintf("Status: %d %s", state.AlertingCount, incidentLabel)
 	if state.SnoozedCount > 0 {
 		title += fmt.Sprintf(" + %d snoozed", state.SnoozedCount)
 	}

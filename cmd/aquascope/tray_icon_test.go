@@ -64,6 +64,9 @@ func TestTrayStatusTitle(t *testing.T) {
 	if got, want := trayStatusTitle(trayState{}), "Status: 0 incidents"; got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
+	if got, want := trayStatusTitle(trayState{AlertingCount: 1}), "Status: 1 incident"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
 	if got, want := trayStatusTitle(trayState{AlertingCount: 2, SnoozedCount: 1}), "Status: 2 incidents + 1 snoozed"; got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
