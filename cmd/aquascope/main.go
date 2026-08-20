@@ -44,7 +44,7 @@ func onReady() {
 		os.Exit(1)
 	}
 
-	mitemStatus := systray.AddMenuItem("Status", "")
+	mitemStatus := systray.AddMenuItem(trayStatusTitle(trayState{}), "")
 	mitemExit := systray.AddMenuItem("Exit", "")
 
 	notify = newDesktopNotificationSink()
@@ -57,7 +57,10 @@ func onReady() {
 		Config:        cfg.WSClient,
 		StatePath:     filepath.Join(usr.HomeDir, ".aquascope_state.json"),
 		Notifications: notify,
-		OnIconState:   applyIcon,
+		OnIconState: func(state trayState) {
+			applyIcon(state)
+			mitemStatus.SetTitle(trayStatusTitle(state))
+		},
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to start AquaScope core: %s\n", err)

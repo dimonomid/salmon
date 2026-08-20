@@ -128,6 +128,15 @@ func applyIcon(state trayState) {
 	go flashIcon(icon, trayIcons.transparent, stop)
 }
 
+// trayStatusTitle summarizes active and snoozed incidents in the tray menu.
+func trayStatusTitle(state trayState) string {
+	title := fmt.Sprintf("Status: %d incidents", state.AlertingCount)
+	if state.SnoozedCount > 0 {
+		title += fmt.Sprintf(" + %d snoozed", state.SnoozedCount)
+	}
+	return title
+}
+
 // Icon returns the tray icon representing state. An icon without a snoozed
 // overlay is returned directly; compositions are cached by both states.
 func (c *iconCombiner) Icon(state trayState) []byte {

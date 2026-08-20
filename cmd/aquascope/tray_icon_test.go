@@ -60,6 +60,15 @@ func TestIconCombinerCachesComposedIcons(t *testing.T) {
 	}
 }
 
+func TestTrayStatusTitle(t *testing.T) {
+	if got, want := trayStatusTitle(trayState{}), "Status: 0 incidents"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if got, want := trayStatusTitle(trayState{AlertingCount: 2, SnoozedCount: 1}), "Status: 2 incidents + 1 snoozed"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
 func TestOnIncidentUpdateDerivesTrayState(t *testing.T) {
 	var received []trayState
 	core := &aquascopeCore{
@@ -81,12 +90,12 @@ func TestOnIncidentUpdateDerivesTrayState(t *testing.T) {
 	if len(received) != 1 {
 		t.Fatalf("got %d tray updates, want 1", len(received))
 	}
-	if received[0].Alerting != overallStateWarning || received[0].Snoozed == nil || *received[0].Snoozed != overallStateError {
+	if received[0].Alerting != overallStateWarning || received[0].AlertingCount != 1 || received[0].Snoozed == nil || *received[0].Snoozed != overallStateError || received[0].SnoozedCount != 1 {
 		t.Fatalf("unexpected tray state: %#v", received[0])
 	}
 
 	core.onIncidentUpdate(incidentSnapshot{})
-	if len(received) != 2 || received[1].Alerting != overallStateOK || received[1].Snoozed != nil {
+	if len(received) != 2 || received[1].Alerting != overallStateOK || received[1].AlertingCount != 0 || received[1].Snoozed != nil || received[1].SnoozedCount != 0 {
 		t.Fatalf("unexpected empty tray state: %#v", received)
 	}
 }

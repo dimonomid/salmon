@@ -37,11 +37,13 @@ type hostStatus struct {
 	initialized       bool       `json:"-"`
 }
 
-// trayState is the already-aggregated state needed to render the tray icon.
-// Snoozed is nil when no snoozed incidents need an overlay.
+// trayState is the already-aggregated incident information needed by the tray
+// UI. Snoozed is nil when no snoozed incidents need an icon overlay.
 type trayState struct {
-	Alerting overallState
-	Snoozed  *overallState
+	Alerting      overallState
+	AlertingCount int
+	Snoozed       *overallState
+	SnoozedCount  int
 }
 
 type aquascopeCoreParams struct {
@@ -51,7 +53,7 @@ type aquascopeCoreParams struct {
 	StatePath string
 	// Notifications receives desktop notification events.
 	Notifications notificator
-	// OnIconState applies the aggregated incident state to the tray icon.
+	// OnIconState applies the aggregated incident state to the tray UI.
 	OnIconState func(trayState)
 	// Clock supplies time to the incident combiner; tests can provide a fake.
 	Clock clock.Clock
@@ -149,7 +151,11 @@ func (c *aquascopeCore) Close() {
 func (c *aquascopeCore) onIncidentUpdate(snapshot incidentSnapshot) {
 	c.statusWebserver.SetOngoingIncidents(snapshot)
 	if c.onIconState != nil {
-		state := trayState{Alerting: getOverallStateFromItems(snapshot.Alerting)}
+		state := trayState{
+			Alerting:      getOverallStateFromItems(snapshot.Alerting),
+			AlertingCount: len(snapshot.Alerting),
+			SnoozedCount:  len(snapshot.Snoozed),
+		}
 		if len(snapshot.Snoozed) > 0 {
 			snoozed := getOverallStateFromItems(snapshot.SnoozedItems())
 			state.Snoozed = &snoozed
