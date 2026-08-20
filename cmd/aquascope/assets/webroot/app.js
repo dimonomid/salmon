@@ -5,7 +5,26 @@ const serverDetailsToggle = document.getElementById("server-details-toggle");
 const hosts = document.getElementById("hosts");
 const incidents = document.getElementById("incidents");
 const incidentSummary = document.getElementById("incident-summary");
-let hostDetailsVisible = false;
+const hostDetailsVisibilityKey = "aquascope.hostDetailsVisible";
+const snoozedVisibilityKey = "aquascope.snoozedVisible";
+
+function visibilityPreference(key) {
+  try {
+    return localStorage.getItem(key) === "true";
+  } catch (_) {
+    return false;
+  }
+}
+
+function saveVisibilityPreference(key, visible) {
+  try {
+    localStorage.setItem(key, String(visible));
+  } catch (_) {
+    // Keep the current-page setting working when browser storage is unavailable.
+  }
+}
+
+let hostDetailsVisible = visibilityPreference(hostDetailsVisibilityKey);
 
 function formatChangeTime(changeTime) {
   const date = new Date(changeTime);
@@ -118,6 +137,7 @@ function renderHosts(items) {
 
 serverDetailsToggle.addEventListener("click", () => {
   hostDetailsVisible = !hostDetailsVisible;
+  saveVisibilityPreference(hostDetailsVisibilityKey, hostDetailsVisible);
   serverDetailsToggle.textContent = hostDetailsVisible ? "Hide" : "Details";
   hosts.hidden = !hostDetailsVisible;
 });
@@ -138,7 +158,7 @@ function iconURL(item) {
   return "/icons/salmon_red.png";
 }
 
-let snoozedVisible = false;
+let snoozedVisible = visibilityPreference(snoozedVisibilityKey);
 
 function renderIncidentList(items, container, isSnoozed) {
   for (const item of items) {
@@ -237,6 +257,7 @@ function render(alertingItems, snoozedItems) {
     toggle.textContent = snoozedVisible ? "Hide" : "Show";
     toggle.addEventListener("click", () => {
       snoozedVisible = !snoozedVisible;
+      saveVisibilityPreference(snoozedVisibilityKey, snoozedVisible);
       render(alertingItems, snoozedItems);
     });
     snoozedSummary.appendChild(toggle);
