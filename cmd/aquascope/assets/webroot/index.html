@@ -7,7 +7,12 @@
 </head>
 <body>
   <h1>Ongoing incidents</h1>
-  <p><span id="connection-status">Connecting…</span> <span id="server-summary"></span> <button id="server-details-toggle" type="button" hidden>Details</button></p>
+  <p>
+    <span id="connection-status">Connecting…</span><span id="status-summary" hidden>
+      :: <span id="server-summary"></span> <button id="server-details-toggle" type="button" hidden>Details</button>
+      :: <span id="incident-summary"></span>
+    </span>
+  </p>
   <div id="hosts" hidden></div>
   <div id="incidents"></div>
   <script src="/app.js"></script>

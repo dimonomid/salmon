@@ -1,8 +1,10 @@
 const connectionStatus = document.getElementById("connection-status");
+const statusSummary = document.getElementById("status-summary");
 const serverSummary = document.getElementById("server-summary");
 const serverDetailsToggle = document.getElementById("server-details-toggle");
 const hosts = document.getElementById("hosts");
 const incidents = document.getElementById("incidents");
+const incidentSummary = document.getElementById("incident-summary");
 let hostDetailsVisible = false;
 
 function formatChangeTime(changeTime) {
@@ -70,18 +72,13 @@ function formatHostTime(value) {
 function renderHosts(items) {
   items = items || [];
   const online = items.filter((item) => item.connected).length;
-  const offline = items.length - online;
-  serverSummary.replaceChildren();
-  if (items.length > 0) {
-    serverSummary.appendChild(document.createTextNode(`(${online}/${items.length} servers are online`));
-    if (offline > 0) {
-      serverSummary.appendChild(document.createTextNode(", "));
-      const offlineText = document.createElement("span");
-      offlineText.className = "status-disconnected";
-      offlineText.textContent = `${offline} offline`;
-      serverSummary.appendChild(offlineText);
-    }
-    serverSummary.appendChild(document.createTextNode(")"));
+  serverSummary.textContent = `${online}/${items.length} hosts are online`;
+  if (online === items.length) {
+    serverSummary.className = "status-connected";
+  } else if (online === 0) {
+    serverSummary.className = "status-disconnected";
+  } else {
+    serverSummary.className = "status-warning";
   }
   serverDetailsToggle.hidden = items.length === 0;
   serverDetailsToggle.textContent = hostDetailsVisible ? "Hide" : "Details";
@@ -205,6 +202,19 @@ function renderIncidentList(items, container, isSnoozed) {
 function render(alertingItems, snoozedItems) {
   alertingItems = alertingItems || [];
   snoozedItems = snoozedItems || [];
+
+  incidentSummary.textContent = `${alertingItems.length} incidents`;
+  if (snoozedItems.length > 0) {
+    incidentSummary.appendChild(document.createTextNode(` + ${snoozedItems.length} snoozed`));
+  }
+  if (alertingItems.length > 0) {
+    incidentSummary.className = "status-disconnected";
+  } else if (snoozedItems.length > 0) {
+    incidentSummary.className = "status-warning";
+  } else {
+    incidentSummary.className = "status-connected";
+  }
+
   incidents.replaceChildren();
 
   if (alertingItems.length === 0) {
@@ -274,13 +284,14 @@ function connect() {
     const message = JSON.parse(event.data);
     renderHosts(message.hosts);
     render(message.ongoingIncidents.alerting, message.ongoingIncidents.snoozed);
+    statusSummary.hidden = false;
   };
 
   socket.onclose = () => {
     connectionStatus.textContent = "× UI offline; reconnecting...";
     connectionStatus.className = "status-disconnected";
     serverSummary.replaceChildren();
-    serverDetailsToggle.hidden = true;
+    statusSummary.hidden = true;
     hosts.hidden = true;
     window.setTimeout(connect, 1000);
   };

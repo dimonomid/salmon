@@ -20,6 +20,10 @@
   color: red;
 }
 
+.status-warning {
+  color: #b8860b;
+}
+
 .incident-label {
   text-align: right;
 }
