@@ -79,15 +79,10 @@ textarea {
   padding: 0.5em;
 }
 
-.incident-empty,
-.snoozed-summary {
+.incident-empty {
   padding-left: 0.5em;
 }
 
 .snoozed-incident {
   background: #e5e5e5;
-}
-
-.snoozed-summary button {
-  margin-left: 0.5em;
 }
