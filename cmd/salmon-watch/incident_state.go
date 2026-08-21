@@ -28,9 +28,9 @@ type snoozeEntry struct {
 	SnoozedUntil time.Time `json:"snoozed_until"`
 }
 
-// persistedAquascopeState is the complete on-disk ~/.aquascope_state.json
+// persistedSalmonWatchState is the complete on-disk salmon-watch state-file
 // structure.
-type persistedAquascopeState struct {
+type persistedSalmonWatchState struct {
 	Snoozed map[string]snoozeEntry `json:"snoozed"`
 }
 
@@ -70,7 +70,7 @@ func (s incidentSnapshot) SnoozedItems() []salmon.ItemWContext {
 	return items
 }
 
-// incidentState is the shared source of truth for AquaScope's current active
+// incidentState is the shared source of truth for Salmon Watch's current active
 // incidents and persisted snooze decisions. It produces the classified
 // snapshot consumed by both the tray icon and the status webserver.
 type incidentState struct {
@@ -116,7 +116,7 @@ func newSnoozeState(path string) (*snoozeState, error) {
 		return nil, err
 	}
 
-	var persisted persistedAquascopeState
+	var persisted persistedSalmonWatchState
 	if err := json.Unmarshal(data, &persisted); err != nil {
 		return nil, err
 	}
@@ -290,7 +290,7 @@ func (s *snoozeState) expire() ([]string, error) {
 // writeLocked writes a human-readable state file. The caller must hold mtx
 // when changing the live snooze map.
 func (s *snoozeState) writeLocked(snoozed map[string]snoozeEntry) error {
-	data, err := json.MarshalIndent(persistedAquascopeState{Snoozed: snoozed}, "", "  ")
+	data, err := json.MarshalIndent(persistedSalmonWatchState{Snoozed: snoozed}, "", "  ")
 	if err != nil {
 		return err
 	}

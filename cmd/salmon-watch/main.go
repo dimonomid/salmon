@@ -15,8 +15,8 @@ import (
 
 var notify notificator
 
-// core owns AquaScope's background Salmon connections for shutdown cleanup.
-var core *aquascopeCore
+// core owns Salmon Watch's background Salmon connections for shutdown cleanup.
+var core *salmonWatchCore
 
 func main() {
 	// NOTE: Run should be the only thing which executes in main; otherwise
@@ -33,7 +33,7 @@ func onReady() {
 	fmt.Println(usr.HomeDir)
 
 	configFilename := pflag.String(
-		"config", fmt.Sprintf("%s/.config/aquascope/aquascope.yml", usr.HomeDir), "Config filename",
+		"config", fmt.Sprintf("%s/.config/salmon-watch/salmon-watch.yml", usr.HomeDir), "Config filename",
 	)
 
 	pflag.Parse()
@@ -48,14 +48,14 @@ func onReady() {
 	mitemExit := systray.AddMenuItem("Exit", "")
 
 	notify = newDesktopNotificationSink()
-	notify.Push("Hello there", "Aquascope started")
+	notify.Push("Hello there", "Salmon Watch started")
 
 	loadTrayIcons()
 
 	applyIcon(trayState{Alerting: overallStateUnknown})
-	core, err = newAquascopeCore(aquascopeCoreParams{
+	core, err = newSalmonWatchCore(salmonWatchCoreParams{
 		Config:        cfg.WSClient,
-		StatePath:     filepath.Join(usr.HomeDir, ".aquascope_state.json"),
+		StatePath:     filepath.Join(usr.HomeDir, ".salmon-watch-state.json"),
 		Notifications: notify,
 		OnIconState: func(state trayState) {
 			applyIcon(state)
@@ -63,7 +63,7 @@ func onReady() {
 		},
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to start AquaScope core: %s\n", err)
+		fmt.Fprintf(os.Stderr, "failed to start Salmon Watch core: %s\n", err)
 		os.Exit(1)
 	}
 

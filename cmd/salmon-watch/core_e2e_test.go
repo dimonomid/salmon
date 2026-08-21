@@ -113,7 +113,7 @@ func (m *mockSalmonServer) waitConnected(t *testing.T) {
 	select {
 	case <-m.connected:
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for AquaScope connection")
+		t.Fatal("timed out waiting for Salmon Watch connection")
 	}
 }
 
@@ -134,7 +134,7 @@ func (m *mockSalmonServer) send(t *testing.T, notification salmon.Notification) 
 	}
 	m.mu.Unlock()
 	if len(connections) == 0 {
-		t.Fatal("mock Salmon has no connected AquaScope client")
+		t.Fatal("mock Salmon has no connected Salmon Watch client")
 	}
 	for _, conn := range connections {
 		if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
@@ -233,12 +233,12 @@ func item(key, comment string) *salmon.ItemWContext {
 }
 
 func TestCoreCombinesTwoSalmonServers(t *testing.T) {
-	// Model two independent Salmon hosts; AquaScope must combine their
+	// Model two independent Salmon hosts; Salmon Watch must combine their
 	// incidents and prefix each key with the configured host ID.
 	first := newMockSalmonServer(t)
 	second := newMockSalmonServer(t)
 	notifications := &recordingNotificator{}
-	core, err := newAquascopeCore(aquascopeCoreParams{
+	core, err := newSalmonWatchCore(salmonWatchCoreParams{
 		Config: wsclient.Config{Servers: []wsclient.ConfigServer{
 			{ID: "first", Addr: first.address()},
 			{ID: "second", Addr: second.address()},
@@ -275,7 +275,7 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 		Added: []*salmon.ItemWContext{item("cpu", "second")},
 	}})
 
-	// The two Salmon messages produce two AquaScope WebSocket updates. The
+	// The two Salmon messages produce two Salmon Watch WebSocket updates. The
 	// second one must contain the combined incidents from both hosts.
 	message := readStatusUntil(t, statusConn, func(message statusMessage) bool {
 		return hasAlertingKey(message, "first.disk") && hasAlertingKey(message, "second.cpu")
@@ -342,7 +342,7 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 		t.Fatalf("incident recovery notification missing: %#v", gotTitles)
 	}
 
-	// Model one Salmon host going offline. AquaScope should expose the
+	// Model one Salmon host going offline. Salmon Watch should expose the
 	// connection failure as an internal incident and notify about it.
 	second.closeConnections()
 	message = readStatusUntil(t, statusConn, func(message statusMessage) bool {
@@ -394,7 +394,7 @@ func TestCoreSnoozedIncidentDoesNotNotify(t *testing.T) {
 	// The incident should still be visible in the status UI, but must not alert.
 	salmonServer := newMockSalmonServer(t)
 	notifications := &recordingNotificator{}
-	core, err := newAquascopeCore(aquascopeCoreParams{
+	core, err := newSalmonWatchCore(salmonWatchCoreParams{
 		Config:         wsclient.Config{Servers: []wsclient.ConfigServer{{ID: "server", Addr: salmonServer.address()}}},
 		StatePath:      t.TempDir() + "/state.json",
 		Notifications:  notifications,
@@ -424,7 +424,7 @@ func TestCoreSnoozedIncidentDoesNotNotify(t *testing.T) {
 	}
 	_ = response.Body.Close()
 
-	// Salmon now reports the incident as newly added. AquaScope should classify
+	// Salmon now reports the incident as newly added. Salmon Watch should classify
 	// it as snoozed in the WebSocket payload and emit no desktop notification.
 	incident := item("disk", "network is down")
 	salmonServer.send(t, salmon.Notification{OngoingIncidents: salmon.OngoingIncidentsWDelta{
@@ -486,9 +486,9 @@ func TestCoreSnoozedIncidentDoesNotNotify(t *testing.T) {
 
 func TestCoreSnoozeExpirationPublishesUpdate(t *testing.T) {
 	// Use a short test interval to model the periodic expiration check without
-	// making the test wait for AquaScope's production ten-second interval.
+	// making the test wait for Salmon Watch's production ten-second interval.
 	salmonServer := newMockSalmonServer(t)
-	core, err := newAquascopeCore(aquascopeCoreParams{
+	core, err := newSalmonWatchCore(salmonWatchCoreParams{
 		Config:              wsclient.Config{Servers: []wsclient.ConfigServer{{ID: "server", Addr: salmonServer.address()}}},
 		StatePath:           t.TempDir() + "/state.json",
 		SnoozeCheckInterval: 5 * time.Millisecond,
@@ -537,7 +537,7 @@ func TestCoreCloseIsIdempotent(t *testing.T) {
 	// Closing the core twice must be safe and must return without leaving the
 	// Salmon connection worker running.
 	salmonServer := newMockSalmonServer(t)
-	core, err := newAquascopeCore(aquascopeCoreParams{
+	core, err := newSalmonWatchCore(salmonWatchCoreParams{
 		Config:         wsclient.Config{Servers: []wsclient.ConfigServer{{ID: "server", Addr: salmonServer.address()}}},
 		StatePath:      t.TempDir() + "/state.json",
 		ReconnectDelay: time.Millisecond,
@@ -551,11 +551,11 @@ func TestCoreCloseIsIdempotent(t *testing.T) {
 }
 
 func TestStatusWebSocketReconnectReceivesLatestSnapshot(t *testing.T) {
-	// Model a browser disconnecting and reconnecting after AquaScope has
+	// Model a browser disconnecting and reconnecting after Salmon Watch has
 	// already received an incident. The new connection should get the latest
 	// snapshot immediately, without waiting for another Salmon message.
 	salmonServer := newMockSalmonServer(t)
-	core, err := newAquascopeCore(aquascopeCoreParams{
+	core, err := newSalmonWatchCore(salmonWatchCoreParams{
 		Config:         wsclient.Config{Servers: []wsclient.ConfigServer{{ID: "server", Addr: salmonServer.address()}}},
 		StatePath:      t.TempDir() + "/state.json",
 		ReconnectDelay: time.Millisecond,

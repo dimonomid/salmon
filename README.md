@@ -45,20 +45,14 @@ Which, if I take some random letters out of it: "Systemd et AL MONitoring",
 becomes "salmon". Yeah it's probably a weird name, but I didn't promise not to
 be weird.
 
-But wait a min, we're not yet done with the naming. As mentioned, the tool can
-monitor not only local machine, but also server(s); so it means there should be
-a server part (running on a remote machine and actually checking its health),
-and also to get an icon on a desktop, there should be a client part.
-"salmon-client" sounds boring. So if we think about it, what does one need to
-make it easier to see a salmon? An
-[aquascope](https://en.wikipedia.org/wiki/Aquascope). So yeah, you guessed it:
-the client part is called "aquascope".
+Salmon has a server part (running on a remote machine and actually checking its
+health) and a desktop client part. The client is called `salmon-watch`: it
+watches the status reported by one or more Salmon servers, and provides tray
+icon and web ui.
 
 So all in all, we run `salmon` on every machine we want to monitor health for
 (which can be local machine as well as any number of servers), and we run
-`aquascope` on desktop, which will connect to all the `salmon`s it's configured
-to check, and will show a tray icon.
-
-As mentioned above, it's probably some weird naming. Forgive me.
+`salmon-watch` on desktop, which will connect to all the `salmon`s it's
+configured to check and show a tray icon.
 
 ## TODO install and setup

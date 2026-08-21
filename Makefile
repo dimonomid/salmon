@@ -1,5 +1,5 @@
 .PHONY: all
-all: salmon aquascope
+all: salmon salmon-watch
 
 .PHONY: generate
 generate:
@@ -9,17 +9,17 @@ generate:
 salmon: generate
 	cd cmd/salmon && go build
 
-.PHONY: aquascope
-aquascope: generate
-	cd cmd/aquascope && go build
+.PHONY: salmon-watch
+salmon-watch: generate
+	cd cmd/salmon-watch && go build
 
 .PHONY: install
-install: install_salmon install_aquascope
+install: install_salmon install_salmon-watch
 
 .PHONY: install_salmon
 install_salmon:
 	cp cmd/salmon/salmon /usr/local/bin
 
-.PHONY: install_aquascope
-install_aquascope:
-	cp cmd/aquascope/aquascope /usr/local/bin
+.PHONY: install_salmon-watch
+install_salmon-watch:
+	cp cmd/salmon-watch/salmon-watch /usr/local/bin

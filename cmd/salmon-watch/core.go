@@ -12,9 +12,9 @@ import (
 	"github.com/dimonomid/salmon/wsclient"
 )
 
-// aquascopeCore contains AquaScope's event processing without any systray or
+// salmonWatchCore contains Salmon Watch's event processing without any systray or
 // process-lifecycle concerns, making it usable from end-to-end tests.
-type aquascopeCore struct {
+type salmonWatchCore struct {
 	incidentState   *incidentState
 	statusWebserver *statusWebserver
 	notifications   notificator
@@ -46,8 +46,8 @@ type trayState struct {
 	SnoozedCount  int
 }
 
-type aquascopeCoreParams struct {
-	// Config describes the Salmon servers AquaScope should connect to.
+type salmonWatchCoreParams struct {
+	// Config describes the Salmon servers Salmon Watch should connect to.
 	Config wsclient.Config
 	// StatePath is the location of the persisted snooze state file.
 	StatePath string
@@ -65,7 +65,7 @@ type aquascopeCoreParams struct {
 	SnoozeCheckInterval time.Duration
 }
 
-func newAquascopeCore(params aquascopeCoreParams) (*aquascopeCore, error) {
+func newSalmonWatchCore(params salmonWatchCoreParams) (*salmonWatchCore, error) {
 	var incidentState *incidentState
 	var err error
 	if params.SnoozeCheckInterval > 0 {
@@ -77,7 +77,7 @@ func newAquascopeCore(params aquascopeCoreParams) (*aquascopeCore, error) {
 		return nil, err
 	}
 
-	core := &aquascopeCore{
+	core := &salmonWatchCore{
 		incidentState: incidentState,
 		notifications: params.Notifications,
 		onIconState:   params.OnIconState,
@@ -109,7 +109,7 @@ func newAquascopeCore(params aquascopeCoreParams) (*aquascopeCore, error) {
 	return core, nil
 }
 
-func (c *aquascopeCore) onConnectionEvent(id string, event wsclient.ConnectionEvent) {
+func (c *salmonWatchCore) onConnectionEvent(id string, event wsclient.ConnectionEvent) {
 	c.hostStatusesMtx.Lock()
 	status := c.hostStatuses[id]
 	if event.EventKind == wsclient.EventKindHeartbeat {
@@ -131,7 +131,7 @@ func (c *aquascopeCore) onConnectionEvent(id string, event wsclient.ConnectionEv
 	c.publishHostStatuses()
 }
 
-func (c *aquascopeCore) publishHostStatuses() {
+func (c *salmonWatchCore) publishHostStatuses() {
 	c.hostStatusesMtx.RLock()
 	statuses := make([]hostStatus, 0, len(c.hostStatuses))
 	for _, status := range c.hostStatuses {
@@ -141,14 +141,14 @@ func (c *aquascopeCore) publishHostStatuses() {
 	c.statusWebserver.SetHostStatuses(statuses)
 }
 
-// Close stops AquaScope's Salmon clients and waits for their worker loops.
-func (c *aquascopeCore) Close() {
+// Close stops Salmon Watch's Salmon clients and waits for their worker loops.
+func (c *salmonWatchCore) Close() {
 	if c.combiner != nil {
 		c.combiner.Close()
 	}
 }
 
-func (c *aquascopeCore) onIncidentUpdate(snapshot incidentSnapshot) {
+func (c *salmonWatchCore) onIncidentUpdate(snapshot incidentSnapshot) {
 	c.statusWebserver.SetOngoingIncidents(snapshot)
 	if c.onIconState != nil {
 		state := trayState{
@@ -164,7 +164,7 @@ func (c *aquascopeCore) onIncidentUpdate(snapshot incidentSnapshot) {
 	}
 }
 
-func (c *aquascopeCore) onNotification(notif *salmon.Notification) {
+func (c *salmonWatchCore) onNotification(notif *salmon.Notification) {
 	snapshot := c.incidentState.Update(notif.OngoingIncidents.Total)
 
 	d, _ := json.MarshalIndent(notif, "", "  ")

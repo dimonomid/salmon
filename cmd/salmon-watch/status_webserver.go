@@ -289,7 +289,7 @@ func serveIcon(w http.ResponseWriter, r *http.Request, assetName string) {
 }
 
 // noStoreHandler ensures the browser does not keep stale copies of static UI
-// assets after AquaScope is rebuilt with new embedded assets.
+// assets after Salmon Watch is rebuilt with new embedded assets.
 func noStoreHandler(inner http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		setNoStoreHeaders(w)

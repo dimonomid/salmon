@@ -5,8 +5,8 @@ const serverDetailsToggle = document.getElementById("server-details-toggle");
 const hosts = document.getElementById("hosts");
 const incidents = document.getElementById("incidents");
 const incidentSummary = document.getElementById("incident-summary");
-const hostDetailsVisibilityKey = "aquascope.hostDetailsVisible";
-const snoozedVisibilityKey = "aquascope.snoozedVisible";
+const hostDetailsVisibilityKey = "salmon-watch.hostDetailsVisible";
+const snoozedVisibilityKey = "salmon-watch.snoozedVisible";
 
 function visibilityPreference(key) {
   try {

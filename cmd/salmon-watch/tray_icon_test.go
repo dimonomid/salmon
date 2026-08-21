@@ -74,7 +74,7 @@ func TestTrayStatusTitle(t *testing.T) {
 
 func TestOnIncidentUpdateDerivesTrayState(t *testing.T) {
 	var received []trayState
-	core := &aquascopeCore{
+	core := &salmonWatchCore{
 		statusWebserver: newStatusWebserver(statusWebserverParams{}),
 		onIconState: func(state trayState) {
 			received = append(received, state)
