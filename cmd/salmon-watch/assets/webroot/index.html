@@ -4,9 +4,17 @@
   <meta charset="utf-8">
   <title>Salmon Watch</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <script>
+    try {
+      if (localStorage.getItem("salmon-watch.theme") === "light") {
+        document.documentElement.dataset.theme = "light";
+      }
+    } catch (_) {}
+  </script>
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
+  <button id="theme-toggle" type="button"></button>
   <h1>&gt;&lt;&gt; Salmon Watch</h1>
   <div><span id="connection-status">Connecting…</span></div>
   <div id="status-summary" hidden>

@@ -1,4 +1,5 @@
 const connectionStatus = document.getElementById("connection-status");
+const themeToggle = document.getElementById("theme-toggle");
 const statusSummary = document.getElementById("status-summary");
 const serverSummary = document.getElementById("server-summary");
 const hosts = document.getElementById("hosts");
@@ -9,6 +10,36 @@ const snoozedIncidents = document.getElementById("snoozed-incidents");
 const hostDetailsVisibilityKey = "salmon-watch.hostDetailsVisible";
 const incidentDetailsVisibilityKey = "salmon-watch.incidentDetailsVisible";
 const snoozedVisibilityKey = "salmon-watch.snoozedVisible";
+const themeKey = "salmon-watch.theme";
+
+function themePreference() {
+  try {
+    return localStorage.getItem(themeKey) === "light" ? "light" : "dark";
+  } catch (_) {
+    return "dark";
+  }
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
+  const nextTheme = theme === "dark" ? "light" : "dark";
+  themeToggle.textContent = nextTheme === "light" ? "☀" : "☾";
+  themeToggle.setAttribute("aria-label", `Switch to ${nextTheme} scheme`);
+  themeToggle.title = `Switch to ${nextTheme} scheme`;
+}
+
+let theme = themePreference();
+applyTheme(theme);
+
+themeToggle.addEventListener("click", () => {
+  theme = theme === "dark" ? "light" : "dark";
+  applyTheme(theme);
+  try {
+    localStorage.setItem(themeKey, theme);
+  } catch (_) {
+    // Keep the current-page setting working when browser storage is unavailable.
+  }
+});
 
 function visibilityPreference(key, defaultVisible = false) {
   try {

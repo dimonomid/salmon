@@ -1,3 +1,26 @@
+:root {
+  color-scheme: dark;
+  --background: #171717;
+  --foreground: #e8e8e8;
+  --surface: #2a2a2a;
+  --border: #666;
+  --connected: #7ad879;
+  --disconnected: #ff7b72;
+  --warning: #f1c453;
+  --section-indent: 2ch;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --background: #fff;
+  --foreground: #000;
+  --surface: #e5e5e5;
+  --border: #777;
+  --connected: green;
+  --disconnected: red;
+  --warning: #b8860b;
+}
+
 @font-face {
   font-family: "Departure Mono";
   src: url("/DepartureMono-Regular.woff") format("woff");
@@ -8,10 +31,8 @@
 
 body {
   font-family: "Departure Mono", monospace;
-}
-
-:root {
-  --section-indent: 2ch;
+  background: var(--background);
+  color: var(--foreground);
 }
 
 button,
@@ -25,8 +46,21 @@ textarea {
   appearance: none;
   background: none;
   border: 0;
+  color: inherit;
   cursor: pointer;
   padding: 0;
+}
+
+#theme-toggle {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: inherit;
+  cursor: pointer;
+  font-size: 1.5em;
+  padding: 0.3em 0.5em;
+  position: fixed;
+  right: 1em;
+  top: 1em;
 }
 
 .incident {
@@ -46,15 +80,15 @@ textarea {
 }
 
 .status-connected {
-  color: green;
+  color: var(--connected);
 }
 
 .status-disconnected {
-  color: red;
+  color: var(--disconnected);
 }
 
 .status-warning {
-  color: #b8860b;
+  color: var(--warning);
 }
 
 .incident-label {
@@ -79,7 +113,7 @@ textarea {
 }
 
 .snoozed-list {
-  background: #e5e5e5;
+  background: var(--surface);
   padding: 0.5em 0.5em 0.5em 0;
 }
 
@@ -88,5 +122,5 @@ textarea {
 }
 
 .snoozed-incident {
-  background: #e5e5e5;
+  background: var(--surface);
 }
