@@ -123,7 +123,7 @@ function renderHosts(items) {
   const table = document.createElement("table");
   table.className = "host-status-table";
   const header = table.insertRow();
-  for (const column of ["server", "status", "last status change", "last heartbeat"]) {
+  for (const column of ["server", "connection", "last conn change", "last heartbeat"]) {
     const cell = document.createElement("th");
     cell.textContent = column;
     header.appendChild(cell);
