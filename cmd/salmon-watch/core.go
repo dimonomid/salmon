@@ -23,6 +23,8 @@ type salmonWatchCore struct {
 	combiner        *wsclient.Combiner
 	hostStatusesMtx sync.RWMutex
 	hostStatuses    map[string]hostStatus
+	// hostIDs preserves the order of servers in the Salmon Watch configuration.
+	hostIDs []string
 }
 
 type hostStatus struct {
@@ -82,9 +84,11 @@ func newSalmonWatchCore(params salmonWatchCoreParams) (*salmonWatchCore, error) 
 		notifications: params.Notifications,
 		onIconState:   params.OnIconState,
 		hostStatuses:  make(map[string]hostStatus, len(params.Config.Servers)),
+		hostIDs:       make([]string, 0, len(params.Config.Servers)),
 	}
 	for _, server := range params.Config.Servers {
 		core.hostStatuses[server.ID] = hostStatus{ID: server.ID}
+		core.hostIDs = append(core.hostIDs, server.ID)
 	}
 	core.statusWebserver = newStatusWebserver(statusWebserverParams{
 		OnSnooze:   incidentState.Snooze,
@@ -133,9 +137,11 @@ func (c *salmonWatchCore) onConnectionEvent(id string, event wsclient.Connection
 
 func (c *salmonWatchCore) publishHostStatuses() {
 	c.hostStatusesMtx.RLock()
-	statuses := make([]hostStatus, 0, len(c.hostStatuses))
-	for _, status := range c.hostStatuses {
-		statuses = append(statuses, status)
+	statuses := make([]hostStatus, 0, len(c.hostIDs))
+	// Iterate by configured ID rather than over hostStatuses: Go map iteration
+	// order is deliberately unstable, while the status UI shows this order.
+	for _, id := range c.hostIDs {
+		statuses = append(statuses, c.hostStatuses[id])
 	}
 	c.hostStatusesMtx.RUnlock()
 	c.statusWebserver.SetHostStatuses(statuses)

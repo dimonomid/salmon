@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -240,8 +241,8 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 	notifications := &recordingNotificator{}
 	core, err := newSalmonWatchCore(salmonWatchCoreParams{
 		Config: wsclient.Config{Servers: []wsclient.ConfigServer{
-			{ID: "first", Addr: first.address()},
 			{ID: "second", Addr: second.address()},
+			{ID: "first", Addr: first.address()},
 		}},
 		StatePath:      t.TempDir() + "/state.json",
 		Notifications:  notifications,
@@ -260,9 +261,12 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 	second.waitConnected(t)
 	first.sendHeartbeat(t)
 	second.sendHeartbeat(t)
-	_ = readStatusUntil(t, statusConn, func(message statusMessage) bool {
+	hostStatus := readStatusUntil(t, statusConn, func(message statusMessage) bool {
 		return len(message.Hosts) == 2 && message.Hosts[0].LastHeartbeatTime != nil && message.Hosts[1].LastHeartbeatTime != nil
 	})
+	if got, want := []string{hostStatus.Hosts[0].ID, hostStatus.Hosts[1].ID}, []string{"second", "first"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("host status order = %#v, want configuration order %#v", got, want)
+	}
 
 	// Both hosts report a newly added error. Each should produce a status update
 	// and one desktop notification, with the host prefix included in the key.

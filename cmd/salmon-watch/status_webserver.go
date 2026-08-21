@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
-	"sort"
 	"sync"
 	"time"
 
@@ -95,7 +94,6 @@ func (s *statusWebserver) message() statusWebsocketMessage {
 	message.OngoingIncidents.Alerting = append([]salmon.ItemWContext(nil), s.snapshot.Alerting...)
 	message.OngoingIncidents.Snoozed = append([]snoozedIncident(nil), s.snapshot.Snoozed...)
 	message.Hosts = append([]hostStatus(nil), s.hostStatuses...)
-	sort.Slice(message.Hosts, func(i, j int) bool { return message.Hosts[i].ID < message.Hosts[j].ID })
 	return message
 }
 
