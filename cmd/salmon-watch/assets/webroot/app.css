@@ -17,6 +17,14 @@ textarea {
   font: inherit;
 }
 
+.section-summary {
+  appearance: none;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+}
+
 .incident {
   font-family: inherit;
 }
@@ -26,7 +34,9 @@ textarea {
 }
 
 .host-status-table th,
-.host-status-table td {
+.host-status-table td,
+.incident th,
+.incident td {
   padding: 0.2em 0.5em;
   text-align: left;
 }
@@ -67,6 +77,11 @@ textarea {
 .snoozed-list {
   background: #e5e5e5;
   padding: 0.5em;
+}
+
+.incident-empty,
+.snoozed-summary {
+  padding-left: 0.5em;
 }
 
 .snoozed-incident {

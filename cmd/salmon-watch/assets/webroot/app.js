@@ -1,18 +1,19 @@
 const connectionStatus = document.getElementById("connection-status");
 const statusSummary = document.getElementById("status-summary");
 const serverSummary = document.getElementById("server-summary");
-const serverDetailsToggle = document.getElementById("server-details-toggle");
 const hosts = document.getElementById("hosts");
 const incidents = document.getElementById("incidents");
 const incidentSummary = document.getElementById("incident-summary");
 const hostDetailsVisibilityKey = "salmon-watch.hostDetailsVisible";
+const incidentDetailsVisibilityKey = "salmon-watch.incidentDetailsVisible";
 const snoozedVisibilityKey = "salmon-watch.snoozedVisible";
 
-function visibilityPreference(key) {
+function visibilityPreference(key, defaultVisible = false) {
   try {
-    return localStorage.getItem(key) === "true";
+    const value = localStorage.getItem(key);
+    return value === null ? defaultVisible : value === "true";
   } catch (_) {
-    return false;
+    return defaultVisible;
   }
 }
 
@@ -25,6 +26,11 @@ function saveVisibilityPreference(key, visible) {
 }
 
 let hostDetailsVisible = visibilityPreference(hostDetailsVisibilityKey);
+let incidentDetailsVisible = visibilityPreference(incidentDetailsVisibilityKey, true);
+
+function setSectionSummary(summary, text, visible) {
+  summary.replaceChildren(document.createTextNode(`▪ ${text} ${visible ? "▼" : "▲"}`));
+}
 
 function formatChangeTime(changeTime) {
   const date = new Date(changeTime);
@@ -94,17 +100,17 @@ function formatIncidentCount(count) {
 
 function renderHosts(items) {
   items = items || [];
+  lastHostItems = items;
   const online = items.filter((item) => item.connected).length;
-  serverSummary.textContent = `${online}/${items.length} hosts are online`;
+  setSectionSummary(serverSummary, `${online}/${items.length} hosts are online`, hostDetailsVisible);
   if (online === items.length) {
-    serverSummary.className = "status-connected";
+    serverSummary.className = "section-summary status-connected";
   } else if (online === 0) {
-    serverSummary.className = "status-disconnected";
+    serverSummary.className = "section-summary status-disconnected";
   } else {
-    serverSummary.className = "status-warning";
+    serverSummary.className = "section-summary status-warning";
   }
-  serverDetailsToggle.hidden = items.length === 0;
-  serverDetailsToggle.textContent = hostDetailsVisible ? "Hide" : "Details";
+  serverSummary.hidden = items.length === 0;
   hosts.hidden = !hostDetailsVisible || items.length === 0;
   hosts.replaceChildren();
 
@@ -135,11 +141,10 @@ function renderHosts(items) {
   hosts.appendChild(document.createElement("hr"));
 }
 
-serverDetailsToggle.addEventListener("click", () => {
+serverSummary.addEventListener("click", () => {
   hostDetailsVisible = !hostDetailsVisible;
   saveVisibilityPreference(hostDetailsVisibilityKey, hostDetailsVisible);
-  serverDetailsToggle.textContent = hostDetailsVisible ? "Hide" : "Details";
-  hosts.hidden = !hostDetailsVisible;
+  renderHosts(lastHostItems);
 });
 
 function iconURL(item) {
@@ -159,6 +164,9 @@ function iconURL(item) {
 }
 
 let snoozedVisible = visibilityPreference(snoozedVisibilityKey);
+let lastHostItems = [];
+let lastAlertingItems = [];
+let lastSnoozedItems = [];
 
 function renderIncidentList(items, container, isSnoozed) {
   for (const item of items) {
@@ -226,23 +234,29 @@ function renderIncidentList(items, container, isSnoozed) {
 function render(alertingItems, snoozedItems) {
   alertingItems = alertingItems || [];
   snoozedItems = snoozedItems || [];
+  lastAlertingItems = alertingItems;
+  lastSnoozedItems = snoozedItems;
 
-  incidentSummary.textContent = formatIncidentCount(alertingItems.length);
+  let incidentText = formatIncidentCount(alertingItems.length);
   if (snoozedItems.length > 0) {
-    incidentSummary.appendChild(document.createTextNode(` + ${snoozedItems.length} snoozed`));
+    incidentText += ` + ${snoozedItems.length} snoozed`;
   }
+  setSectionSummary(incidentSummary, incidentText, incidentDetailsVisible);
   if (alertingItems.length > 0) {
-    incidentSummary.className = "status-disconnected";
+    incidentSummary.className = "section-summary status-disconnected";
   } else if (snoozedItems.length > 0) {
-    incidentSummary.className = "status-warning";
+    incidentSummary.className = "section-summary status-warning";
   } else {
-    incidentSummary.className = "status-connected";
+    incidentSummary.className = "section-summary status-connected";
   }
 
   incidents.replaceChildren();
 
   if (alertingItems.length === 0) {
-    incidents.appendChild(document.createTextNode("No ongoing incidents."));
+    const emptyMessage = document.createElement("div");
+    emptyMessage.className = "incident-empty";
+    emptyMessage.textContent = "No ongoing incidents.";
+    incidents.appendChild(emptyMessage);
   } else {
     renderIncidentList(alertingItems, incidents, false);
   }
@@ -270,7 +284,15 @@ function render(alertingItems, snoozedItems) {
     renderIncidentList(snoozedItems, snoozedList, true);
     incidents.appendChild(snoozedList);
   }
+
+  incidents.hidden = !incidentDetailsVisible;
 }
+
+incidentSummary.addEventListener("click", () => {
+  incidentDetailsVisible = !incidentDetailsVisible;
+  saveVisibilityPreference(incidentDetailsVisibilityKey, incidentDetailsVisible);
+  render(lastAlertingItems, lastSnoozedItems);
+});
 
 async function snoozeIncident(key, duration) {
   const response = await fetch("/api/v1/snooze", {
