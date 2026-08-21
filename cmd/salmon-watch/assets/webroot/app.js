@@ -27,7 +27,7 @@ function saveVisibilityPreference(key, visible) {
   }
 }
 
-let hostDetailsVisible = visibilityPreference(hostDetailsVisibilityKey);
+let hostDetailsVisible = visibilityPreference(hostDetailsVisibilityKey, true);
 let incidentDetailsVisible = visibilityPreference(incidentDetailsVisibilityKey, true);
 
 function setSectionSummary(summary, text, visible) {
