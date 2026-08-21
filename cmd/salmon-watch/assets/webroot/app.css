@@ -10,6 +10,10 @@ body {
   font-family: "Departure Mono", monospace;
 }
 
+:root {
+  --section-indent: 2ch;
+}
+
 button,
 input,
 select,
@@ -37,7 +41,7 @@ textarea {
 .host-status-table td,
 .incident th,
 .incident td {
-  padding: 0.2em 0.5em;
+  padding: 0.2em 0.5em 0.2em var(--section-indent);
   text-align: left;
 }
 
@@ -76,11 +80,11 @@ textarea {
 
 .snoozed-list {
   background: #e5e5e5;
-  padding: 0.5em;
+  padding: 0.5em 0.5em 0.5em 0;
 }
 
 .incident-empty {
-  padding-left: 0.5em;
+  padding-left: var(--section-indent);
 }
 
 .snoozed-incident {
