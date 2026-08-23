@@ -74,12 +74,11 @@ func (app *watchApp) onReady() {
 
 // watchConfigReadError adds setup guidance when the default configuration is
 // missing.
-func watchConfigReadError(configFilename string, err error) string {
-	message := fmt.Sprintf("failed to read config from %s: %s", configFilename, err)
+func watchConfigReadError(configFilename string, err error) error {
 	if configNotFound(err) && configFilename == defaultWatchConfigPath() {
-		message += fmt.Sprintf("\n\nHint: Run the following command to create the default configuration and desktop-autostart entry:\n\n    %s setup\n", setup.ShellArgument(os.Args[0]))
+		return fmt.Errorf("failed to read config from %s: %w\n\nHint: Run the following command to create the default configuration and desktop-autostart entry:\n\n    %s setup\n", configFilename, err, setup.ShellArgument(os.Args[0]))
 	}
-	return message
+	return fmt.Errorf("failed to read config from %s: %w", configFilename, err)
 }
 
 // onExit shuts down Salmon Watch resources after the tray exits.

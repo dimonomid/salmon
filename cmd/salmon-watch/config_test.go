@@ -18,10 +18,10 @@ func TestConfigNotFound(t *testing.T) {
 }
 
 func TestWatchConfigReadErrorOnlySuggestsSetupForDefaultConfig(t *testing.T) {
-	if got := watchConfigReadError("/custom/config.yml", os.ErrNotExist); strings.Contains(got, "setup") {
+	if got := watchConfigReadError("/custom/config.yml", os.ErrNotExist); strings.Contains(got.Error(), "setup") {
 		t.Fatalf("custom config error = %q, unexpectedly contains setup guidance", got)
 	}
-	if got := watchConfigReadError(defaultWatchConfigPath(), os.ErrNotExist); !strings.Contains(got, "setup") {
+	if got := watchConfigReadError(defaultWatchConfigPath(), os.ErrNotExist); !strings.Contains(got.Error(), "setup") {
 		t.Fatalf("default config error = %q, missing setup guidance", got)
 	}
 }

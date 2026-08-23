@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/getlantern/systray"
 	"github.com/spf13/cobra"
 )
@@ -18,7 +16,7 @@ func newWatchRootCommand() *cobra.Command {
 		RunE: func(_ *cobra.Command, _ []string) error {
 			cfg, err := loadConfig(configFilename)
 			if err != nil {
-				return fmt.Errorf("%s", watchConfigReadError(configFilename, err))
+				return watchConfigReadError(configFilename, err)
 			}
 			app := &watchApp{config: cfg}
 			// systray.Run must be the only operation that runs the tray app: it
