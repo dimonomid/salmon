@@ -110,3 +110,13 @@ func TestSalmonConfigReadErrorSuggestsSetupForDefaultConfig(t *testing.T) {
 		t.Fatalf("salmonConfigReadError() = %v, want setup guidance", err)
 	}
 }
+
+func TestLoadConfigRejectsUnknownFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "salmon.yml")
+	if err := os.WriteFile(path, []byte("core:\n  collectorz: []\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadConfig(path); err == nil || !strings.Contains(err.Error(), "collectorz") {
+		t.Fatalf("loadConfig error = %v, want unknown-field error", err)
+	}
+}

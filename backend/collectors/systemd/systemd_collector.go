@@ -3,6 +3,7 @@ package systemd
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/dimonomid/salmon"
 	"github.com/dimonomid/salmon/backend/collectors"
@@ -11,8 +12,10 @@ import (
 type Collector struct {
 	params CollectorParams
 
-	pr       Provider
-	torndown chan struct{}
+	pr        Provider
+	teardown  chan struct{}
+	torndown  chan struct{}
+	closeOnce sync.Once
 }
 
 var _ collectors.Collector = &Collector{}
@@ -21,12 +24,27 @@ type CollectorParams struct {
 	Common collectors.Params
 
 	Config Config
+
+	// ProviderFactory exists primarily so black-box tests can replace the
+	// external systemd/DBus boundary with a controlled provider. Production
+	// callers should normally leave it nil to use the DBus-backed provider. A
+	// custom provider must obey the shutdown contract documented by Provider.
+	ProviderFactory func(ProviderParams) (Provider, error)
 }
 
 func NewCollector(params CollectorParams) (*Collector, error) {
+	if err := validateConfig(params.Config); err != nil {
+		return nil, err
+	}
 	providerUpdCh := make(chan *UnitUpdate, 16)
 
-	pr, err := createProvider(providerUpdCh)
+	providerFactory := params.ProviderFactory
+	if providerFactory == nil {
+		providerFactory = func(providerParams ProviderParams) (Provider, error) {
+			return NewProviderCoreos(ProviderCoreosParams{Common: providerParams})
+		}
+	}
+	pr, err := providerFactory(ProviderParams{UnitUpdatesChan: providerUpdCh})
 	if err != nil {
 		return nil, err
 	}
@@ -34,6 +52,7 @@ func NewCollector(params CollectorParams) (*Collector, error) {
 	c := &Collector{
 		params:   params,
 		pr:       pr,
+		teardown: make(chan struct{}),
 		torndown: make(chan struct{}),
 	}
 
@@ -44,24 +63,53 @@ func NewCollector(params CollectorParams) (*Collector, error) {
 	return c, nil
 }
 
-func (c *Collector) Close() {
-	// Close the provider first.
-	c.pr.Close()
+func validateConfig(config Config) error {
+	for ruleIndex, rule := range config.UnitRules {
+		for conditionIndex, condition := range rule.Conds {
+			if !salmon.IsItemStateValid(condition.Result) {
+				return fmt.Errorf("rule #%d condition #%d has invalid result %q", ruleIndex, conditionIndex, condition.Result)
+			}
+		}
+	}
+	return nil
+}
 
-	// Once the provider teardown is done, it also closes providerUpdCh, which
-	// results in the run goroutine exiting the loop and closing the c.torndown
-	// channel, so that's what we wait on next.
-	<-c.torndown
+func (c *Collector) Close() {
+	c.closeOnce.Do(func() {
+		// Stop forwarding updates first. The run goroutine continues draining the
+		// provider channel so the provider cannot block while it shuts down.
+		close(c.teardown)
+		c.pr.Close()
+
+		// Provider shutdown closes providerUpdCh. Once it has been drained, the
+		// run goroutine exits and closes c.torndown.
+		<-c.torndown
+	})
 }
 
 func (c *Collector) run(providerUpdCh chan *UnitUpdate) {
+	defer close(c.torndown)
 	firstUpdate := true
+	shuttingDown := false
 
 	for sysUpd := range providerUpdCh {
+		if !shuttingDown {
+			select {
+			case <-c.teardown:
+				shuttingDown = true
+			default:
+			}
+		}
+		if shuttingDown {
+			// Keep draining until provider shutdown closes providerUpdCh.
+			continue
+		}
+
 		if sysUpd.Err != nil {
-			// TODO: timeout on send
-			c.params.Common.UpdatesChan <- &collectors.Update{
+			if !c.sendUpdate(&collectors.Update{
 				Err: fmt.Errorf("got error from systemd conn: %w", sysUpd.Err),
+			}) {
+				shuttingDown = true
 			}
 			continue
 		}
@@ -121,28 +169,25 @@ func (c *Collector) run(providerUpdCh chan *UnitUpdate) {
 			continue
 		}
 
-		// TODO: timeout on send
-		c.params.Common.UpdatesChan <- upd
+		if !c.sendUpdate(upd) {
+			shuttingDown = true
+		}
 	}
+}
 
-	close(c.torndown)
+// sendUpdate forwards an update unless shutdown has started. Returning false
+// tells run to stop publishing while it drains the provider channel.
+func (c *Collector) sendUpdate(update *collectors.Update) bool {
+	select {
+	case c.params.Common.UpdatesChan <- update:
+		return true
+	case <-c.teardown:
+		return false
+	}
 }
 
 func (c *Collector) itemKeyFromSystemdName(name string) salmon.ItemKey {
 	return salmon.ItemKey(c.params.Common.ID + "." + name)
-}
-
-func createProvider(updCh chan *UnitUpdate) (Provider, error) {
-	pr, err := NewProviderCoreos(ProviderCoreosParams{
-		Common: ProviderParams{
-			UnitUpdatesChan: updCh,
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("creating coreos systemd provider: %w", err)
-	}
-
-	return pr, nil
 }
 
 func (c *Collector) getItemFromUnit(unit *Unit) *salmon.Item {

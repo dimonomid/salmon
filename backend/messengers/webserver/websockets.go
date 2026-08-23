@@ -65,9 +65,7 @@ const (
 	wsEventInternalError wsEvent = "InternalError"
 )
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { /* TODO */ return true },
-}
+var upgrader = websocket.Upgrader{}
 
 type wsConn struct {
 	conn   *websocket.Conn
@@ -98,20 +96,25 @@ func (s *Webserver) wsConnect(w http.ResponseWriter, r *http.Request) (resp inte
 		ctxCancel: ctxCancel,
 	}
 
-	subID, ch := s.subscribe()
+	subID, ch, ok := s.subscribe(conn)
+	if !ok {
+		conn.ctxCancel()
+		_ = conn.conn.Close()
+		return nil, nil
+	}
 	conn.subID = subID
 
-	go s.notifHandleLoop(ch, conn.txMsgs)
+	go s.notifHandleLoop(conn, ch, conn.txMsgs)
 	go s.wsRxLoop(conn, conn.txMsgs)
 	go s.wsTxLoop(conn, conn.txMsgs)
 
 	return nil, nil
 }
 
-func (s *Webserver) notifHandleLoop(ch chan *salmon.Notification, txMsgs chan<- wsTxMsg) {
+func (s *Webserver) notifHandleLoop(conn *wsConn, ch <-chan *salmon.Notification, txMsgs chan<- wsTxMsg) {
 	initialItems := s.params.Common.ItemsBoard.Get()
 
-	txMsgs <- wsTxMsg{
+	if !sendWSMessage(conn, txMsgs, wsTxMsg{
 		Event: wsEventOngoingIncidentsSnapshot,
 		Data: &salmon.Notification{
 			Time: time.Now(),
@@ -119,13 +122,28 @@ func (s *Webserver) notifHandleLoop(ch chan *salmon.Notification, txMsgs chan<- 
 				Total: initialItems,
 			},
 		},
+	}) {
+		return
 	}
 
 	for notif := range ch {
-		txMsgs <- wsTxMsg{
+		if !sendWSMessage(conn, txMsgs, wsTxMsg{
 			Event: wsEventOngoingIncidentsUpdate,
 			Data:  notif,
+		}) {
+			return
 		}
+	}
+}
+
+// sendWSMessage queues a message unless the connection has been canceled. It
+// prevents producers from remaining blocked on a full queue after TX exits.
+func sendWSMessage(conn *wsConn, txMsgs chan<- wsTxMsg, msg wsTxMsg) bool {
+	select {
+	case txMsgs <- msg:
+		return true
+	case <-conn.ctx.Done():
+		return false
 	}
 }
 
@@ -133,13 +151,7 @@ func (s *Webserver) wsRxLoop(conn *wsConn, txMsgs chan<- wsTxMsg) (err error) {
 	defer func() {
 		fmt.Println("breaking out of rx loop:", err)
 
-		// TODO
-		//if conn.subID != 0 && conn.glr != nil {
-		//fmt.Println("unsubscribing", conn.subID)
-		//conn.glr.Unsubscribe(conn.subID)
-		//}
-
-		conn.ctxCancel()
+		s.unsubscribe(conn.subID)
 	}()
 
 	for {
@@ -149,9 +161,11 @@ func (s *Webserver) wsRxLoop(conn *wsConn, txMsgs chan<- wsTxMsg) (err error) {
 		}
 
 		if messageType != websocket.TextMessage {
-			txMsgs <- wsTxMsg{
+			if !sendWSMessage(conn, txMsgs, wsTxMsg{
 				Event:  wsEventResponse,
 				Result: wsResultErrBadRequest,
+			}) {
+				return conn.ctx.Err()
 			}
 			continue
 		}
@@ -160,27 +174,31 @@ func (s *Webserver) wsRxLoop(conn *wsConn, txMsgs chan<- wsTxMsg) (err error) {
 
 		decoder := json.NewDecoder(reader)
 		if err := decoder.Decode(&req); err != nil {
-			txMsgs <- wsTxMsg{
+			if !sendWSMessage(conn, txMsgs, wsTxMsg{
 				Event:  wsEventResponse,
 				Result: wsResultErrBadRequest,
+			}) {
+				return conn.ctx.Err()
 			}
 			continue
 		}
 
-		go func() {
-			resp := s.handleWSCommand(conn, req)
-			txMsgs <- *resp
-		}()
+		resp := s.handleWSCommand(conn, req)
+		if resp != nil && !sendWSMessage(conn, txMsgs, *resp) {
+			return conn.ctx.Err()
+		}
 	}
 }
 
 func (s *Webserver) wsTxLoop(conn *wsConn, txMsgs <-chan wsTxMsg) {
 	defer func() {
 		fmt.Println("breaking out of tx loop")
+		s.unsubscribe(conn.subID)
 	}()
 
 	// Create ticker for heartbeats
 	heartbeats := time.NewTicker(10 * time.Second)
+	defer heartbeats.Stop()
 
 	for {
 		select {
@@ -191,7 +209,7 @@ func (s *Webserver) wsTxLoop(conn *wsConn, txMsgs <-chan wsTxMsg) {
 			w, err := conn.conn.NextWriter(websocket.TextMessage)
 			if err != nil {
 				fmt.Println("NextWriter err:", err)
-				continue
+				return
 			}
 
 			encoder := json.NewEncoder(w)
@@ -209,17 +227,14 @@ func (s *Webserver) wsTxLoop(conn *wsConn, txMsgs <-chan wsTxMsg) {
 			}
 			if err := w.Close(); err != nil {
 				fmt.Println("Close err:", err)
-				continue
+				return
 			}
 
 		case <-heartbeats.C:
-			w, err := conn.conn.NextWriter(websocket.BinaryMessage)
-			if err != nil {
-				fmt.Println("NextWriter err:", err)
-				continue
+			if err := conn.conn.WriteMessage(websocket.BinaryMessage, []byte{0}); err != nil {
+				fmt.Println("heartbeat write error:", err)
+				return
 			}
-
-			w.Write([]byte{0})
 		}
 	}
 }

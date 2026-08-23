@@ -60,10 +60,24 @@ func (p *ProviderCoreos) run() {
 	// we also don't have to specify which units we want to filter (because we actually
 	// want all units)
 	updatesCh, errCh := p.conn.SubscribeUnits(1 * time.Second)
+	p.runSubscription(updatesCh, errCh, p.conn.Close)
+}
 
+// runSubscription translates go-systemd subscription events until teardown.
+// Keeping this loop separate from DBus connection setup lets its lifecycle be
+// tested with controlled channels.
+func (p *ProviderCoreos) runSubscription(
+	updatesCh <-chan map[string]*dbus.UnitStatus,
+	errCh <-chan error,
+	closeConn func(),
+) {
 	for {
 		select {
-		case upd := <-updatesCh:
+		case upd, ok := <-updatesCh:
+			if !ok {
+				updatesCh = nil
+				continue
+			}
 			m := make(map[string]*Unit, len(upd))
 			for k, v := range upd {
 				if v == nil {
@@ -81,15 +95,20 @@ func (p *ProviderCoreos) run() {
 			p.sendWithTimeout(&UnitUpdate{
 				Units: m,
 			})
-		case err := <-errCh:
+		case err, ok := <-errCh:
+			if !ok {
+				errCh = nil
+				continue
+			}
 			p.sendWithTimeout(&UnitUpdate{
 				Err: err,
 			})
 
 		case c := <-p.teardownCh:
-			p.conn.Close()
+			closeConn()
 			close(p.params.Common.UnitUpdatesChan)
 			close(c)
+			return
 		}
 	}
 }

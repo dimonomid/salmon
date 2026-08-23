@@ -15,13 +15,18 @@ func createCollector(
 		return nil, err
 	}
 
-	var ret collectors.Collector
+	numTypes := 0
+	if cfg.Systemd != nil {
+		numTypes++
+	}
+	if cfg.Exec != nil {
+		numTypes++
+	}
+	if numTypes != 1 {
+		return nil, fmt.Errorf("config contains %d collector types; exactly one collector type is required", numTypes)
+	}
 
 	if cfg.Systemd != nil {
-		if ret != nil {
-			return nil, fmt.Errorf("config contains more than a single collector")
-		}
-
 		c, err := systemd.NewCollector(systemd.CollectorParams{
 			Common: commonParams,
 			Config: *cfg.Systemd,
@@ -34,10 +39,6 @@ func createCollector(
 	}
 
 	if cfg.Exec != nil {
-		if ret != nil {
-			return nil, fmt.Errorf("config contains more than a single collector")
-		}
-
 		c, err := exec.NewCollector(exec.CollectorParams{
 			Common: commonParams,
 			Config: *cfg.Exec,
@@ -61,6 +62,13 @@ func createCollectors(
 
 	for i, cfg := range cfgs {
 		if _, used := usedIDs[cfg.ID]; used {
+			// Found duplicate collector ID, gotta error out, but first we need to
+			// clean up: roll back collectors created from earlier entries before
+			// returning the configuration error, otherwise those workers would be
+			// leaked.
+			for _, collector := range ret {
+				collector.Close()
+			}
 			return nil, fmt.Errorf("collector config #%d: duplicate id %q", i, cfg.ID)
 		}
 
@@ -70,6 +78,11 @@ func createCollectors(
 		curCommonParams.ID = cfg.ID
 		c, err := createCollector(cfg, curCommonParams)
 		if err != nil {
+			// Creating this entry failed after earlier collectors had already
+			// started, so close those collectors as construction rollback.
+			for _, collector := range ret {
+				collector.Close()
+			}
 			return nil, fmt.Errorf("creating collector from config #%d: %w", i, err)
 		}
 

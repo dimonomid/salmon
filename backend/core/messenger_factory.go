@@ -22,13 +22,18 @@ type messengerWCtx struct {
 func createMessenger(
 	cfg Messenger, commonParams messengers.Params,
 ) (messengers.Messenger, error) {
-	var ret messengers.Messenger
+	numTypes := 0
+	if cfg.FileLogger != nil {
+		numTypes++
+	}
+	if cfg.Webserver != nil {
+		numTypes++
+	}
+	if numTypes != 1 {
+		return nil, fmt.Errorf("config contains %d messenger types; exactly one messenger type is required", numTypes)
+	}
 
 	if cfg.FileLogger != nil {
-		if ret != nil {
-			return nil, fmt.Errorf("config contains more than a single messenger")
-		}
-
 		c, err := filelogger.New(filelogger.Params{
 			Common: commonParams,
 			Config: *cfg.FileLogger,
@@ -41,10 +46,6 @@ func createMessenger(
 	}
 
 	if cfg.Webserver != nil {
-		if ret != nil {
-			return nil, fmt.Errorf("config contains more than a single messenger")
-		}
-
 		c, err := webserver.New(webserver.Params{
 			Common: commonParams,
 			Config: *cfg.Webserver,
@@ -77,6 +78,10 @@ func createMessengers(cfgs []Messenger, ib *itemsboard.ItemsBoard) ([]messengerW
 		var err error
 		mwCtx.messenger, err = createMessenger(cfg, commonParams)
 		if err != nil {
+			for _, created := range ret {
+				close(created.notificationsChan)
+				<-created.tornDown
+			}
 			return nil, fmt.Errorf("creating messenger from config #%d: %w", i, err)
 		}
 

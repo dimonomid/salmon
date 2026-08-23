@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/dimonomid/salmon/backend/collectors"
 	"github.com/dimonomid/salmon/backend/itemsboard"
@@ -22,7 +23,8 @@ type Core struct {
 
 	tracker *statestracker.ItemStatesTracker
 
-	torndown chan struct{}
+	torndown  chan struct{}
+	closeOnce sync.Once
 }
 
 type Params struct {
@@ -30,6 +32,9 @@ type Params struct {
 }
 
 func NewCore(cfg Config, params Params) (*Core, error) {
+	if params.Clock == nil {
+		panic("Clock is required")
+	}
 	updCh := make(chan *collectors.Update, 16)
 
 	collParams := collectors.Params{
@@ -47,6 +52,9 @@ func NewCore(cfg Config, params Params) (*Core, error) {
 
 	messengers, err := createMessengers(cfg.Messengers, ib)
 	if err != nil {
+		for _, collector := range colls {
+			collector.Close()
+		}
 		return nil, fmt.Errorf("creating messengers: %w", err)
 	}
 
@@ -72,6 +80,10 @@ func NewCore(cfg Config, params Params) (*Core, error) {
 }
 
 func (c *Core) Close() {
+	c.closeOnce.Do(c.close)
+}
+
+func (c *Core) close() {
 	// Close all collectors first
 	for _, coll := range c.colls {
 		coll.Close()

@@ -24,6 +24,12 @@ const (
 	ItemStateError   ItemState = "error"
 )
 
+// IsItemStateValid reports whether state is one of Salmon's defined item
+// states.
+func IsItemStateValid(state ItemState) bool {
+	return state == ItemStateOK || state == ItemStateWarning || state == ItemStateError
+}
+
 type ItemWContext struct {
 	Item `json:""`
 

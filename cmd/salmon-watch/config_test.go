@@ -25,3 +25,13 @@ func TestWatchConfigReadErrorOnlySuggestsSetupForDefaultConfig(t *testing.T) {
 		t.Fatalf("default config error = %q, missing setup guidance", got)
 	}
 }
+
+func TestLoadWatchConfigRejectsUnknownFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "salmon-watch.yml")
+	if err := os.WriteFile(path, []byte("wsClient:\n  serverz: []\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadConfig(path); err == nil || !strings.Contains(err.Error(), "serverz") {
+		t.Fatalf("loadConfig error = %v, want unknown-field error", err)
+	}
+}

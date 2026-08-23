@@ -1,9 +1,11 @@
 package exec
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/dimonomid/salmon"
@@ -14,8 +16,11 @@ import (
 type Collector struct {
 	params CollectorParams
 
-	teardown chan struct{}
-	torndown chan struct{}
+	teardown  chan struct{}
+	torndown  chan struct{}
+	ctx       context.Context
+	cancel    context.CancelFunc
+	closeOnce sync.Once
 }
 
 var _ collectors.Collector = &Collector{}
@@ -27,13 +32,17 @@ type CollectorParams struct {
 }
 
 func NewCollector(params CollectorParams) (*Collector, error) {
+	if err := validateConfig(params.Config); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithCancel(context.Background())
 	c := &Collector{
 		params:   params,
 		teardown: make(chan struct{}),
 		torndown: make(chan struct{}),
+		ctx:      ctx,
+		cancel:   cancel,
 	}
-
-	// TODO: validate all conds
 
 	if c.params.Config.PollFreq == 0 {
 		c.params.Config.PollFreq = 1 * time.Minute
@@ -50,8 +59,34 @@ func NewCollector(params CollectorParams) (*Collector, error) {
 	return c, nil
 }
 
+func validateConfig(config Config) error {
+	if len(config.Command) == 0 || config.Command[0] == "" {
+		return fmt.Errorf("command must not be empty")
+	}
+	if config.PollFreq < 0 {
+		return fmt.Errorf("pollFreq must not be negative")
+	}
+	if config.PollFreqWhenFailed < 0 {
+		return fmt.Errorf("pollFreqWhenFailed must not be negative")
+	}
+	for i, condition := range config.Conds {
+		if condition.ExitCode != "" {
+			if _, err := strconv.Atoi(condition.ExitCode); err != nil {
+				return fmt.Errorf("condition #%d has invalid exitCode %q", i, condition.ExitCode)
+			}
+		}
+		if !salmon.IsItemStateValid(condition.Result) {
+			return fmt.Errorf("condition #%d has invalid result %q", i, condition.Result)
+		}
+	}
+	return nil
+}
+
 func (c *Collector) Close() {
-	close(c.teardown)
+	c.closeOnce.Do(func() {
+		c.cancel()
+		close(c.teardown)
+	})
 	<-c.torndown
 }
 
@@ -64,23 +99,33 @@ func (c *Collector) run() {
 
 	tickerNormal := time.NewTicker(c.params.Config.PollFreq)
 	tickerWhenFailed := time.NewTicker(c.params.Config.PollFreqWhenFailed)
+	defer tickerNormal.Stop()
+	defer tickerWhenFailed.Stop()
 
 	var lastItemResult *salmon.Item
 
-	runAndHandle := func() {
+	runAndHandle := func() bool {
 		itemResult := c.runCommand()
 
-		c.params.Common.UpdatesChan <- &collectors.Update{
+		update := &collectors.Update{
 			Items: map[salmon.ItemKey]*salmon.Item{
 				itemResult.Key: itemResult,
 			},
 		}
+		select {
+		case c.params.Common.UpdatesChan <- update:
+		case <-c.teardown:
+			return false
+		}
 
 		lastItemResult = itemResult
+		return true
 	}
 
 	// Run right away, without waiting for the ticker.
-	runAndHandle()
+	if !runAndHandle() {
+		return
+	}
 
 	for {
 
@@ -91,7 +136,9 @@ func (c *Collector) run() {
 
 		select {
 		case <-ticker.C:
-			runAndHandle()
+			if !runAndHandle() {
+				return
+			}
 
 		case <-c.teardown:
 			return
@@ -107,20 +154,23 @@ func (c *Collector) runCommand() *salmon.Item {
 		Comment: c.params.Config.Comment,
 	}
 
-	cmd := exec.Command(c.params.Config.Command[0], c.params.Config.Command[1:]...)
+	cmd := exec.CommandContext(c.ctx, c.params.Config.Command[0], c.params.Config.Command[1:]...)
 	if err := cmd.Start(); err != nil {
 		ret.State = salmon.ItemStateError
 		ret.Comment += ": " + errors.Annotatef(err, "failed to start command").Error()
 		return ret
 	}
 
-	// TODO: run it in a separate goroutine and wait for a timeout here (and
-	// timeout should come from the config).
-	//
-	// Otherwise, if the command gets stuck forever for w/e reason, we won't
-	// get any notification about it.
+	// TODO: add a configurable command timeout. Close cancels an active command,
+	// but during normal operation a stuck command prevents this collector from
+	// producing further updates or reporting that the check itself is stuck.
 	err := cmd.Wait()
 	if err != nil {
+		if c.ctx.Err() != nil {
+			ret.State = salmon.ItemStateError
+			ret.Comment += ": command was canceled: " + c.ctx.Err().Error()
+			return ret
+		}
 		// If the command ran normally but just returned a non-zero status code,
 		// we don't handle it as an error here (since status codes are being handled
 		// accordingly to the config)

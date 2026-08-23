@@ -2,6 +2,7 @@ package webserver
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"sync"
@@ -17,10 +18,13 @@ import (
 type Webserver struct {
 	params Params
 
-	server *http.Server
+	server   *http.Server
+	listener net.Listener
 
 	subs      map[int]chan *salmon.Notification
+	wsConns   map[int]*wsConn
 	nextSubID int
+	closing   bool
 	subsMtx   sync.Mutex
 }
 
@@ -40,7 +44,8 @@ func New(params Params) (*Webserver, error) {
 	s := &Webserver{
 		params: params,
 
-		subs: make(map[int]chan *salmon.Notification),
+		subs:    make(map[int]chan *salmon.Notification),
+		wsConns: make(map[int]*wsConn),
 	}
 
 	handler, err := s.createHandler()
@@ -53,22 +58,31 @@ func New(params Params) (*Webserver, error) {
 		Handler: handler,
 	}
 
+	listener, err := net.Listen("tcp", params.Config.ListenAddress)
+	if err != nil {
+		return nil, errors.Annotate(err, "listening")
+	}
+
 	s.server = server
+	s.listener = listener
 
 	go s.serve()
 	go s.run()
 
-	fmt.Println("Webserver is listening on", s.params.Config.ListenAddress)
+	fmt.Println("Webserver is listening on", listener.Addr())
 
 	return s, nil
 }
 
 func (s *Webserver) String() string {
-	return fmt.Sprintf("webserver on %s", s.params.Config.ListenAddress)
+	return fmt.Sprintf("webserver on %s", s.listener.Addr())
 }
 
+// Addr returns the address of the active listener.
+func (s *Webserver) Addr() net.Addr { return s.listener.Addr() }
+
 func (s *Webserver) serve() {
-	s.server.ListenAndServe()
+	_ = s.server.Serve(s.listener)
 
 	close(s.params.Common.TornDown)
 }
@@ -90,7 +104,7 @@ func (s *Webserver) run() {
 	}
 
 	// Input channel was closed, so teardown now
-
+	s.closeWebsocketConnections()
 	s.server.Close()
 }
 
@@ -114,15 +128,60 @@ func (s *Webserver) status(w http.ResponseWriter, r *http.Request) (resp interfa
 	}, nil
 }
 
-func (s *Webserver) subscribe() (subID int, ch chan *salmon.Notification) {
+func (s *Webserver) subscribe(conn *wsConn) (subID int, ch chan *salmon.Notification, ok bool) {
 	s.subsMtx.Lock()
 	defer s.subsMtx.Unlock()
+
+	// Shutdown marks closing while holding this same mutex before taking its
+	// snapshot of active connections. Rejecting registration here ensures a
+	// connection cannot be upgraded concurrently and escape that snapshot.
+	if s.closing {
+		return 0, nil, false
+	}
 
 	subID = s.nextSubID
 	s.nextSubID++
 
 	ch = make(chan *salmon.Notification, 32)
 	s.subs[subID] = ch
+	s.wsConns[subID] = conn
 
-	return subID, ch
+	return subID, ch, true
+}
+
+// unsubscribe removes a websocket connection from notification fan-out and
+// stops all work owned by that subscription. It is called both when an
+// individual connection's receive loop ends and when server shutdown closes
+// all remaining connections. It is safe to call more than once for the same
+// ID: only the call that removes the subscription closes its channel, cancels
+// its context, and closes its connection.
+func (s *Webserver) unsubscribe(subID int) {
+	s.subsMtx.Lock()
+	ch, exists := s.subs[subID]
+	conn := s.wsConns[subID]
+	if exists {
+		delete(s.subs, subID)
+		delete(s.wsConns, subID)
+		close(ch)
+	}
+	s.subsMtx.Unlock()
+	if exists {
+		conn.ctxCancel()
+		_ = conn.conn.Close()
+	}
+}
+
+func (s *Webserver) closeWebsocketConnections() {
+	s.subsMtx.Lock()
+	// Close admission before taking the snapshot. A handler that already
+	// upgraded its HTTP connection will subsequently be rejected by subscribe.
+	s.closing = true
+	ids := make([]int, 0, len(s.wsConns))
+	for id := range s.wsConns {
+		ids = append(ids, id)
+	}
+	s.subsMtx.Unlock()
+	for _, id := range ids {
+		s.unsubscribe(id)
+	}
 }

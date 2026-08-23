@@ -1,0 +1,116 @@
+package exec_test
+
+import (
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/dimonomid/salmon"
+	"github.com/dimonomid/salmon/backend/collectors"
+	execcollector "github.com/dimonomid/salmon/backend/collectors/exec"
+)
+
+func TestCollectorMapsCommandResultsToItems(t *testing.T) {
+	tests := []struct {
+		name       string
+		command    []string
+		conditions []execcollector.ConfigCond
+		wantState  salmon.ItemState
+		wantText   string
+	}{
+		{
+			name:    "matching exit code",
+			command: []string{"sh", "-c", "exit 7"},
+			conditions: []execcollector.ConfigCond{
+				{ExitCode: "0", Result: salmon.ItemStateOK},
+				{ExitCode: "7", Result: salmon.ItemStateWarning},
+			},
+			wantState: salmon.ItemStateWarning,
+			wantText:  "exit code: 7, applied condition #1",
+		},
+		{
+			name:       "unmatched exit code defaults to error",
+			command:    []string{"sh", "-c", "exit 9"},
+			conditions: []execcollector.ConfigCond{{ExitCode: "0", Result: salmon.ItemStateOK}},
+			wantState:  salmon.ItemStateError,
+			wantText:   "did not find matching condition",
+		},
+		{
+			name:       "command start failure is an incident",
+			command:    []string{"/a/salmon-command-that-does-not-exist"},
+			conditions: []execcollector.ConfigCond{{Result: salmon.ItemStateOK}},
+			wantState:  salmon.ItemStateError,
+			wantText:   "failed to start command",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			updates := make(chan *collectors.Update, 1)
+			collector, err := execcollector.NewCollector(execcollector.CollectorParams{
+				Common: collectors.Params{ID: "check", UpdatesChan: updates},
+				Config: execcollector.Config{
+					Comment:            "probe",
+					Command:            test.command,
+					PollFreq:           time.Hour,
+					PollFreqWhenFailed: time.Hour,
+					Conds:              test.conditions,
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(collector.Close)
+
+			update := receiveUpdate(t, updates)
+			got := update.Items["check.exec_result"]
+			if got == nil {
+				t.Fatalf("update = %#v, want check.exec_result", update)
+			}
+			if got.State != test.wantState {
+				t.Errorf("state = %q, want %q", got.State, test.wantState)
+			}
+			if !strings.Contains(got.Comment, test.wantText) {
+				t.Errorf("comment = %q, want it to contain %q", got.Comment, test.wantText)
+			}
+		})
+	}
+}
+
+func TestCollectorCloseCancelsAStuckCommand(t *testing.T) {
+	updates := make(chan *collectors.Update)
+	collector, err := execcollector.NewCollector(execcollector.CollectorParams{
+		Common: collectors.Params{ID: "check", UpdatesChan: updates},
+		Config: execcollector.Config{
+			Command:            []string{"sh", "-c", "sleep 30"},
+			PollFreq:           time.Hour,
+			PollFreqWhenFailed: time.Hour,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	done := make(chan struct{})
+	go func() {
+		collector.Close()
+		collector.Close()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Close did not cancel the active command")
+	}
+}
+
+func receiveUpdate(t *testing.T, updates <-chan *collectors.Update) *collectors.Update {
+	t.Helper()
+	select {
+	case update := <-updates:
+		return update
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for collector update")
+		return nil
+	}
+}
