@@ -41,7 +41,6 @@ type CombinerParams struct {
 	Config Config
 
 	OngoingIncidentsHandler func(notif *salmon.Notification)
-	//ServerInternalErrorHandler func(err string)
 
 	Clock          clock.Clock
 	ReconnectDelay time.Duration
@@ -68,17 +67,15 @@ func NewCombiner(params CombinerParams) (*Combiner, error) {
 	for i, cfg := range c.params.Config.Servers {
 		ongoingIncidentsCh := make(chan *salmon.Notification, 32)
 		connErrorCh := make(chan string, 32)
-		serverInternalErrorCh := make(chan string, 32)
 		connectionEventCh := make(chan ConnectionEvent, 32)
 
 		wsc, err := New(Params{
 			Config: cfg,
 
-			OngoingIncidentsCh:    ongoingIncidentsCh,
-			ConnErrorCh:           connErrorCh,
-			ServerInternalErrorCh: serverInternalErrorCh,
-			ReconnectDelay:        params.ReconnectDelay,
-			ConnectionEventCh:     connectionEventCh,
+			OngoingIncidentsCh: ongoingIncidentsCh,
+			ConnErrorCh:        connErrorCh,
+			ReconnectDelay:     params.ReconnectDelay,
+			ConnectionEventCh:  connectionEventCh,
 		})
 		if err != nil {
 			c.Close()
@@ -91,12 +88,11 @@ func NewCombiner(params CombinerParams) (*Combiner, error) {
 			cfg ConfigServer,
 			ongoingIncidentsCh <-chan *salmon.Notification,
 			connErrorCh <-chan string,
-			serverInternalErrorCh <-chan string,
 			connectionEventCh <-chan ConnectionEvent,
 		) {
 			defer c.wg.Done()
-			c.runWSClient(cfg, ongoingIncidentsCh, connErrorCh, serverInternalErrorCh, connectionEventCh)
-		}(cfg, ongoingIncidentsCh, connErrorCh, serverInternalErrorCh, connectionEventCh)
+			c.runWSClient(cfg, ongoingIncidentsCh, connErrorCh, connectionEventCh)
+		}(cfg, ongoingIncidentsCh, connErrorCh, connectionEventCh)
 	}
 
 	return c, nil
@@ -156,7 +152,6 @@ func (c *Combiner) runWSClient(
 	cfg ConfigServer,
 	ongoingIncidentsCh <-chan *salmon.Notification,
 	connErrorCh <-chan string,
-	serverInternalErrorCh <-chan string,
 	connectionEventCh <-chan ConnectionEvent,
 ) {
 	for {
@@ -195,13 +190,6 @@ func (c *Combiner) runWSClient(
 			}
 
 			c.applyNotification(IDInternal, notif)
-
-		case err := <-serverInternalErrorCh:
-			// TODO
-			_ = err
-			//if c.params.ServerInternalErrorHandler != nil {
-			//c.params.ServerInternalErrorHandler(err)
-			//}
 		}
 	}
 }

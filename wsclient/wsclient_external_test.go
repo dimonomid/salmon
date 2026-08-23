@@ -42,15 +42,13 @@ func TestClientDisconnectsFromMalformedServerMessages(t *testing.T) {
 
 			notifications := make(chan *salmon.Notification, 1)
 			connectionErrors := make(chan string, 8)
-			serverErrors := make(chan string, 1)
 			connectionEvents := make(chan wsclient.ConnectionEvent, 8)
 			client, err := wsclient.New(wsclient.Params{
-				Config:                wsclient.ConfigServer{ID: "test", Addr: strings.TrimPrefix(server.URL, "http://")},
-				OngoingIncidentsCh:    notifications,
-				ConnErrorCh:           connectionErrors,
-				ServerInternalErrorCh: serverErrors,
-				ReconnectDelay:        time.Hour,
-				ConnectionEventCh:     connectionEvents,
+				Config:             wsclient.ConfigServer{ID: "test", Addr: strings.TrimPrefix(server.URL, "http://")},
+				OngoingIncidentsCh: notifications,
+				ConnErrorCh:        connectionErrors,
+				ReconnectDelay:     time.Hour,
+				ConnectionEventCh:  connectionEvents,
 			})
 			if err != nil {
 				t.Fatal(err)

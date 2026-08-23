@@ -38,9 +38,8 @@ type WSClient struct {
 type Params struct {
 	Config ConfigServer
 
-	OngoingIncidentsCh    chan<- *salmon.Notification
-	ConnErrorCh           chan<- string
-	ServerInternalErrorCh chan<- string
+	OngoingIncidentsCh chan<- *salmon.Notification
+	ConnErrorCh        chan<- string
 	// ReconnectDelay overrides the production reconnect delay when non-zero.
 	ReconnectDelay time.Duration
 	// ConnectionEventCh receives connection and heartbeat events.
@@ -209,21 +208,6 @@ mainLoop:
 						fmt.Println("failed to send ongoing incidents update: buffer full")
 					}
 
-				case "InternalError":
-					var errStr string
-
-					if err := json.Unmarshal(msgServer.Data, &errStr); err != nil {
-						disconnectWithError(fmt.Errorf("decoding InternalError data: %w", err))
-						return
-					}
-
-					select {
-					case c.params.ServerInternalErrorCh <- errStr:
-						// All good
-					default:
-						// TODO: better error handling
-						fmt.Println("failed to send internal server error: buffer full")
-					}
 				}
 			}
 		}()
