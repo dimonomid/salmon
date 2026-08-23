@@ -1,0 +1,4 @@
+wsClient:
+  servers:
+    - id: local # This is just an arbitrary string, you can use whatever.
+      addr: localhost:41990

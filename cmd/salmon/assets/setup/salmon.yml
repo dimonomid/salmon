@@ -1,0 +1,55 @@
+core:
+
+  # Collectors check parts of the system and report incidents when their rules
+  # determine that something is unhealthy.
+  collectors:
+    - id: systemd # Arbitrary key for this collector, you can use whatever.
+      systemd:
+        unitRules:
+          # Rules are evaluated in order, so specific rules must come before
+          # the general rule at the end of this list.
+
+          # To require one specific service to be active, add a rule like this:
+          # - name: important.service
+          #   conds:
+          #     - {state: active, result: ok}
+          #     - {result: error}
+
+          # Another example: ignore every state of a service that is known to fail.
+          - name: something-i-dont-care-about.service
+            conds:
+              - {result: ok}
+
+          # Default rule for all remaining services. Ordinary lifecycle states
+          # are OK; unexpected states such as failed are warnings.
+          - type: service
+            conds:
+              - {state: active, result: ok}
+              - {state: inactive, result: ok}
+              - {state: activating, result: ok}
+              - {state: deactivating, result: ok}
+              - {state: reloading, result: ok}
+              - {state: not-sent-by-systemd, result: ok}
+              - {result: warning}
+
+    # This exec collector demonstrates checking free space on the root
+    # filesystem. Adjust the mount point and 100 MiB threshold for your host.
+    - id: root-free-space
+      exec:
+        comment: root filesystem must have at least 100 MiB free
+        command:
+          - sh
+          - -c
+          - |
+            test "$(df -Pk / | awk 'NR == 2 { print $4 }')" -ge 102400
+        conds:
+          - {exitCode: "0", result: ok}
+          - {result: error}
+
+  # Messengers publish incident updates. Multiple messengers can be used at
+  # once, for example to log changes and expose the web UI.
+  messengers:
+    - fileLogger:
+        fileName: "" # stdout (captured by systemd/journald)
+    - webserver:
+        listenAddress: "127.0.0.1:41990"
