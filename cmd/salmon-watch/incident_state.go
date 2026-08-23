@@ -80,6 +80,9 @@ type incidentState struct {
 	snoozes *snoozeState
 	// expirationInterval controls how often expired snoozes are checked.
 	expirationInterval time.Duration
+	stop               chan struct{}
+	done               chan struct{}
+	closeOnce          sync.Once
 
 	// OnUpdate is called after the classified snapshot changes. The application
 	// uses it to publish the same snapshot to the webserver and tray.
@@ -97,9 +100,21 @@ func newIncidentStateWithInterval(path string, expirationInterval time.Duration)
 	if err != nil {
 		return nil, err
 	}
-	state := &incidentState{snoozes: snoozes, expirationInterval: expirationInterval}
+	state := &incidentState{
+		snoozes:            snoozes,
+		expirationInterval: expirationInterval,
+		stop:               make(chan struct{}),
+		done:               make(chan struct{}),
+	}
 	go state.watchSnoozeExpirations()
 	return state, nil
+}
+
+// Close stops the snooze-expiration worker and waits for it to exit. It is
+// safe to call more than once.
+func (s *incidentState) Close() {
+	s.closeOnce.Do(func() { close(s.stop) })
+	<-s.done
 }
 
 // newSnoozeState loads an existing state file or creates an empty one.
@@ -168,19 +183,24 @@ func (s *incidentState) IsSnoozed(key string) bool {
 func (s *incidentState) watchSnoozeExpirations() {
 	ticker := time.NewTicker(s.expirationInterval)
 	defer ticker.Stop()
+	defer close(s.done)
 
 	for {
-		<-ticker.C
-		expired, err := s.snoozes.expire()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to expire snoozes: %s\n", err)
-			continue
-		}
-		for _, key := range expired {
-			fmt.Printf("Snooze expired: key=%s\n", key)
-		}
-		if len(expired) > 0 {
-			s.notifyUpdate()
+		select {
+		case <-s.stop:
+			return
+		case <-ticker.C:
+			expired, err := s.snoozes.expire()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "failed to expire snoozes: %s\n", err)
+				continue
+			}
+			for _, key := range expired {
+				fmt.Printf("Snooze expired: key=%s\n", key)
+			}
+			if len(expired) > 0 {
+				s.notifyUpdate()
+			}
 		}
 	}
 }

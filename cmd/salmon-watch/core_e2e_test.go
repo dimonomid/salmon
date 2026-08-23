@@ -555,6 +555,11 @@ func TestCoreCloseIsIdempotent(t *testing.T) {
 	salmonServer.waitConnected(t)
 	core.Close()
 	core.Close()
+	select {
+	case <-core.incidentState.done:
+	default:
+		t.Fatal("core close did not stop the incident-state worker")
+	}
 }
 
 func TestStatusWebSocketReconnectReceivesLatestSnapshot(t *testing.T) {

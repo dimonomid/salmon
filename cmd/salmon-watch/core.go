@@ -112,6 +112,7 @@ func newSalmonWatchCore(params salmonWatchCoreParams) (*salmonWatchCore, error) 
 		ConnectionStatusHandler: core.onConnectionEvent,
 	})
 	if err != nil {
+		incidentState.Close()
 		return nil, err
 	}
 	return core, nil
@@ -151,10 +152,13 @@ func (c *salmonWatchCore) publishHostStatuses() {
 	c.statusWebserver.SetHostStatuses(statuses)
 }
 
-// Close stops Salmon Watch's Salmon clients and waits for their worker loops.
+// Close stops Salmon Watch's workers and waits for them to exit.
 func (c *salmonWatchCore) Close() {
 	if c.combiner != nil {
 		c.combiner.Close()
+	}
+	if c.incidentState != nil {
+		c.incidentState.Close()
 	}
 }
 
