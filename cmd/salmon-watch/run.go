@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/benbjohnson/clock"
 	"github.com/getlantern/systray"
 	"github.com/skratchdot/open-golang/open"
 
@@ -42,6 +43,7 @@ func (app *watchApp) onReady() {
 		Config:        app.config.WSClient,
 		StatePath:     filepath.Join(homeDir, ".salmon-watch-state.json"),
 		Notifications: notify,
+		Clock:         clock.New(),
 		OnIconState: func(state trayState) {
 			applyIcon(state)
 			mitemStatus.SetTitle(trayStatusTitle(state))

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/benbjohnson/clock"
 	"github.com/gorilla/websocket"
 
 	"github.com/dimonomid/salmon"
@@ -246,6 +247,7 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 		}},
 		StatePath:      t.TempDir() + "/state.json",
 		Notifications:  notifications,
+		Clock:          clock.New(),
 		ReconnectDelay: time.Millisecond,
 	})
 	if err != nil {
@@ -405,6 +407,7 @@ func TestCoreSnoozedIncidentDoesNotNotify(t *testing.T) {
 		Config:         wsclient.Config{Servers: []wsclient.ConfigServer{{ID: "server", Addr: salmonServer.address()}}},
 		StatePath:      t.TempDir() + "/state.json",
 		Notifications:  notifications,
+		Clock:          clock.New(),
 		ReconnectDelay: time.Millisecond,
 	})
 	if err != nil {
@@ -492,13 +495,14 @@ func TestCoreSnoozedIncidentDoesNotNotify(t *testing.T) {
 }
 
 func TestCoreSnoozeExpirationPublishesUpdate(t *testing.T) {
-	// Use a short test interval to model the periodic expiration check without
-	// making the test wait for Salmon Watch's production ten-second interval.
+	// Advance a mock clock to cover expiration without waiting for wall time.
 	salmonServer := newMockSalmonServer(t)
+	mockClock := clock.NewMock()
 	core, err := newSalmonWatchCore(salmonWatchCoreParams{
 		Config:              wsclient.Config{Servers: []wsclient.ConfigServer{{ID: "server", Addr: salmonServer.address()}}},
 		StatePath:           t.TempDir() + "/state.json",
-		SnoozeCheckInterval: 5 * time.Millisecond,
+		Clock:               mockClock,
+		SnoozeCheckInterval: time.Minute,
 		ReconnectDelay:      time.Millisecond,
 	})
 	if err != nil {
@@ -520,7 +524,8 @@ func TestCoreSnoozeExpirationPublishesUpdate(t *testing.T) {
 	})
 
 	// Snoozing moves the active incident to the snoozed section immediately.
-	if err := core.incidentState.Snooze("server.disk", 15*time.Millisecond); err != nil {
+	const snoozeDuration = 15 * time.Minute
+	if err := core.incidentState.Snooze("server.disk", snoozeDuration); err != nil {
 		t.Fatal(err)
 	}
 	message := readStatusUntil(t, statusConn, func(message statusMessage) bool {
@@ -529,9 +534,13 @@ func TestCoreSnoozeExpirationPublishesUpdate(t *testing.T) {
 	if len(message.OngoingIncidents.Snoozed) != 1 {
 		t.Fatalf("incident was not snoozed: %#v", message.OngoingIncidents)
 	}
+	if got, want := message.OngoingIncidents.Snoozed[0].SnoozedUntil, mockClock.Now().Add(snoozeDuration); !got.Equal(want) {
+		t.Fatalf("snooze expiration = %s, want %s", got, want)
+	}
 
-	// Once the short snooze expires, the periodic watcher must publish a new
+	// Once mock time reaches the expiry, the periodic watcher must publish a new
 	// snapshot that moves the incident back to alerting.
+	mockClock.Add(snoozeDuration)
 	message = readStatusUntil(t, statusConn, func(message statusMessage) bool {
 		return hasAlertingKey(message, "server.disk")
 	})
@@ -547,6 +556,7 @@ func TestCoreCloseIsIdempotent(t *testing.T) {
 	core, err := newSalmonWatchCore(salmonWatchCoreParams{
 		Config:         wsclient.Config{Servers: []wsclient.ConfigServer{{ID: "server", Addr: salmonServer.address()}}},
 		StatePath:      t.TempDir() + "/state.json",
+		Clock:          clock.New(),
 		ReconnectDelay: time.Millisecond,
 	})
 	if err != nil {
@@ -562,6 +572,16 @@ func TestCoreCloseIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestCoreRequiresClock(t *testing.T) {
+	defer func() {
+		if recovered := recover(); recovered != "Clock is required" {
+			t.Fatalf("panic = %#v, want %q", recovered, "Clock is required")
+		}
+	}()
+
+	_, _ = newSalmonWatchCore(salmonWatchCoreParams{})
+}
+
 func TestStatusWebSocketReconnectReceivesLatestSnapshot(t *testing.T) {
 	// Model a browser disconnecting and reconnecting after Salmon Watch has
 	// already received an incident. The new connection should get the latest
@@ -570,6 +590,7 @@ func TestStatusWebSocketReconnectReceivesLatestSnapshot(t *testing.T) {
 	core, err := newSalmonWatchCore(salmonWatchCoreParams{
 		Config:         wsclient.Config{Servers: []wsclient.ConfigServer{{ID: "server", Addr: salmonServer.address()}}},
 		StatePath:      t.TempDir() + "/state.json",
+		Clock:          clock.New(),
 		ReconnectDelay: time.Millisecond,
 	})
 	if err != nil {

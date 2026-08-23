@@ -57,7 +57,7 @@ type salmonWatchCoreParams struct {
 	Notifications notificator
 	// OnIconState applies the aggregated incident state to the tray UI.
 	OnIconState func(trayState)
-	// Clock supplies time to the incident combiner; tests can provide a fake.
+	// Clock supplies time to all incident and snooze state; it is required.
 	Clock clock.Clock
 	// ReconnectDelay overrides the production 5*time.Second reconnect delay
 	// when non-zero.
@@ -68,6 +68,9 @@ type salmonWatchCoreParams struct {
 }
 
 func newSalmonWatchCore(params salmonWatchCoreParams) (*salmonWatchCore, error) {
+	if params.Clock == nil {
+		panic("Clock is required")
+	}
 	if err := params.Config.Validate(); err != nil {
 		return nil, err
 	}
@@ -75,9 +78,9 @@ func newSalmonWatchCore(params salmonWatchCoreParams) (*salmonWatchCore, error) 
 	var incidentState *incidentState
 	var err error
 	if params.SnoozeCheckInterval > 0 {
-		incidentState, err = newIncidentStateWithInterval(params.StatePath, params.SnoozeCheckInterval)
+		incidentState, err = newIncidentStateWithInterval(params.StatePath, params.SnoozeCheckInterval, params.Clock)
 	} else {
-		incidentState, err = newIncidentState(params.StatePath)
+		incidentState, err = newIncidentState(params.StatePath, params.Clock)
 	}
 	if err != nil {
 		return nil, err
@@ -101,9 +104,6 @@ func newSalmonWatchCore(params salmonWatchCoreParams) (*salmonWatchCore, error) 
 	core.publishHostStatuses()
 	incidentState.OnUpdate = core.onIncidentUpdate
 
-	if params.Clock == nil {
-		params.Clock = clock.New()
-	}
 	core.combiner, err = wsclient.NewCombiner(wsclient.CombinerParams{
 		Config:                  params.Config,
 		OngoingIncidentsHandler: core.onNotification,

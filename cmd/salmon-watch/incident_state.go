@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/benbjohnson/clock"
+
 	"github.com/dimonomid/salmon"
 )
 
@@ -77,12 +79,11 @@ type incidentState struct {
 	// ongoingIncidents stores the latest combined Salmon snapshot.
 	ongoingIncidents latestOngoingIncidents
 	// snoozes stores persisted snooze decisions and their expiration times.
-	snoozes *snoozeState
-	// expirationInterval controls how often expired snoozes are checked.
-	expirationInterval time.Duration
-	stop               chan struct{}
-	done               chan struct{}
-	closeOnce          sync.Once
+	snoozes   *snoozeState
+	clock     clock.Clock
+	stop      chan struct{}
+	done      chan struct{}
+	closeOnce sync.Once
 
 	// OnUpdate is called after the classified snapshot changes. The application
 	// uses it to publish the same snapshot to the webserver and tray.
@@ -91,22 +92,26 @@ type incidentState struct {
 
 // newIncidentState loads the persisted snoozes and initializes the shared
 // active-incident classifier.
-func newIncidentState(path string) (*incidentState, error) {
-	return newIncidentStateWithInterval(path, 10*time.Second)
+func newIncidentState(path string, clk clock.Clock) (*incidentState, error) {
+	return newIncidentStateWithInterval(path, 10*time.Second, clk)
 }
 
-func newIncidentStateWithInterval(path string, expirationInterval time.Duration) (*incidentState, error) {
+func newIncidentStateWithInterval(path string, expirationInterval time.Duration, clk clock.Clock) (*incidentState, error) {
+	if clk == nil {
+		panic("Clock is required")
+	}
 	snoozes, err := newSnoozeState(path)
 	if err != nil {
 		return nil, err
 	}
 	state := &incidentState{
-		snoozes:            snoozes,
-		expirationInterval: expirationInterval,
-		stop:               make(chan struct{}),
-		done:               make(chan struct{}),
+		snoozes: snoozes,
+		clock:   clk,
+		stop:    make(chan struct{}),
+		done:    make(chan struct{}),
 	}
-	go state.watchSnoozeExpirations()
+	ticker := clk.Ticker(expirationInterval)
+	go state.watchSnoozeExpirations(ticker)
 	return state, nil
 }
 
@@ -154,7 +159,7 @@ func (s *incidentState) Update(items []*salmon.ItemWContext) incidentSnapshot {
 
 // Snooze persists a snooze and notifies the update hook of the new snapshot.
 func (s *incidentState) Snooze(key string, duration time.Duration) error {
-	if err := s.snoozes.Snooze(key, duration); err != nil {
+	if err := s.snoozes.Snooze(key, duration, s.clock.Now()); err != nil {
 		return err
 	}
 	fmt.Printf("Incident snoozed: key=%s duration=%s\n", key, duration)
@@ -175,13 +180,12 @@ func (s *incidentState) Unsnooze(key string) error {
 
 // IsSnoozed reports whether a key is currently suppressed from notifications.
 func (s *incidentState) IsSnoozed(key string) bool {
-	return s.snoozes.IsSnoozed(key, time.Now())
+	return s.snoozes.IsSnoozed(key, s.clock.Now())
 }
 
 // watchSnoozeExpirations refreshes consumers periodically so expired snoozes
 // are noticed even if no new incident snapshot arrives from the server.
-func (s *incidentState) watchSnoozeExpirations() {
-	ticker := time.NewTicker(s.expirationInterval)
+func (s *incidentState) watchSnoozeExpirations(ticker *clock.Ticker) {
 	defer ticker.Stop()
 	defer close(s.done)
 
@@ -190,7 +194,7 @@ func (s *incidentState) watchSnoozeExpirations() {
 		case <-s.stop:
 			return
 		case <-ticker.C:
-			expired, err := s.snoozes.expire()
+			expired, err := s.snoozes.expire(s.clock.Now())
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "failed to expire snoozes: %s\n", err)
 				continue
@@ -214,7 +218,7 @@ func (s *incidentState) notifyUpdate() {
 func (s *incidentState) snapshot() incidentSnapshot {
 	alerting := make([]salmon.ItemWContext, 0)
 	snoozed := make([]snoozedIncident, 0)
-	now := time.Now()
+	now := s.clock.Now()
 	for _, item := range s.ongoingIncidents.Get() {
 		if snoozedUntil, ok := s.snoozes.snoozedUntil(string(item.Key), now); ok {
 			snoozed = append(snoozed, snoozedIncident{
@@ -229,7 +233,7 @@ func (s *incidentState) snapshot() incidentSnapshot {
 }
 
 // Snooze marks the given key as snoozed for the given duration.
-func (s *snoozeState) Snooze(key string, duration time.Duration) error {
+func (s *snoozeState) Snooze(key string, duration time.Duration, now time.Time) error {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
 
@@ -237,7 +241,7 @@ func (s *snoozeState) Snooze(key string, duration time.Duration) error {
 	for existingKey, entry := range s.snoozed {
 		updated[existingKey] = entry
 	}
-	updated[key] = snoozeEntry{SnoozedUntil: time.Now().Add(duration)}
+	updated[key] = snoozeEntry{SnoozedUntil: now.Add(duration)}
 
 	if err := s.writeLocked(updated); err != nil {
 		return err
@@ -283,11 +287,10 @@ func (s *snoozeState) snoozedUntil(key string, now time.Time) (time.Time, bool) 
 
 // expire removes snoozes whose expiration time has passed and returns their
 // keys.
-func (s *snoozeState) expire() ([]string, error) {
+func (s *snoozeState) expire(now time.Time) ([]string, error) {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
 
-	now := time.Now()
 	updated := make(map[string]snoozeEntry, len(s.snoozed))
 	expired := make([]string, 0)
 	for key, entry := range s.snoozed {
