@@ -38,14 +38,14 @@ func TestWatchStartCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := shellArgument(os.Args[0]); got != want {
+	if want := setup.ShellArgument(os.Args[0]); got != want {
 		t.Fatalf("default start command = %q, want %q", got, want)
 	}
 	got, err = watchStartCommand("/tmp/custom.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := shellArgument(os.Args[0]) + " --config /tmp/custom.yml"; got != want {
+	if want := setup.ShellArgument(os.Args[0]) + " --config /tmp/custom.yml"; got != want {
 		t.Fatalf("custom start command = %q, want %q", got, want)
 	}
 	absoluteConfigFilename, err := filepath.Abs("custom.yml")
@@ -56,32 +56,15 @@ func TestWatchStartCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := shellArgument(os.Args[0]) + " --config " + absoluteConfigFilename; got != want {
+	if want := setup.ShellArgument(os.Args[0]) + " --config " + absoluteConfigFilename; got != want {
 		t.Fatalf("relative custom start command = %q, want %q", got, want)
 	}
 	got, err = watchStartCommand("/tmp/custom config's.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := shellArgument(os.Args[0]) + " --config '/tmp/custom config'\"'\"'s.yml'"; got != want {
+	if want := setup.ShellArgument(os.Args[0]) + " --config '/tmp/custom config'\"'\"'s.yml'"; got != want {
 		t.Fatalf("quoted custom start command = %q, want %q", got, want)
-	}
-}
-
-func TestShellArgument(t *testing.T) {
-	for _, test := range []struct {
-		argument string
-		want     string
-	}{
-		{"salmon-watch", "salmon-watch"},
-		{"/tmp/my config.yml", "'/tmp/my config.yml'"},
-		{"$HOME/salmon.yml", "'$HOME/salmon.yml'"},
-		{"it's.yml", "'it'\"'\"'s.yml'"},
-		{"", "''"},
-	} {
-		if got := shellArgument(test.argument); got != test.want {
-			t.Errorf("shellArgument(%q) = %q, want %q", test.argument, got, test.want)
-		}
 	}
 }
 

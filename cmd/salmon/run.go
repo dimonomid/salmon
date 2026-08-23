@@ -9,6 +9,7 @@ import (
 	"github.com/benbjohnson/clock"
 
 	"github.com/dimonomid/salmon/backend/core"
+	"github.com/dimonomid/salmon/internal/setup"
 )
 
 // runSalmon loads the configuration and runs the monitoring core until a
@@ -38,7 +39,7 @@ func runSalmon(configFilename string) error {
 // missing.
 func salmonConfigReadError(configFilename string, err error) error {
 	if configNotFound(err) && configFilename == defaultSalmonConfig {
-		return fmt.Errorf("failed to read config from %s: %w\n\nHint: Run the following command to create the default configuration and install the service:\n\n    sudo %s setup\n", configFilename, err, os.Args[0])
+		return fmt.Errorf("failed to read config from %s: %w\n\nHint: Run the following command to create the default configuration and install the service:\n\n    sudo %s setup\n", configFilename, err, setup.ShellArgument(os.Args[0]))
 	}
 	return fmt.Errorf("failed to read config from %s: %w", configFilename, err)
 }

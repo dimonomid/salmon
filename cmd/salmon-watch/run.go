@@ -9,6 +9,8 @@ import (
 
 	"github.com/getlantern/systray"
 	"github.com/skratchdot/open-golang/open"
+
+	"github.com/dimonomid/salmon/internal/setup"
 )
 
 // watchApp owns the configuration and lifecycle state of one tray instance.
@@ -75,7 +77,7 @@ func (app *watchApp) onReady() {
 func watchConfigReadError(configFilename string, err error) string {
 	message := fmt.Sprintf("failed to read config from %s: %s", configFilename, err)
 	if configNotFound(err) && configFilename == defaultWatchConfigPath() {
-		message += fmt.Sprintf("\n\nHint: Run the following command to create the default configuration and desktop-autostart entry:\n\n    %s setup\n", shellArgument(os.Args[0]))
+		message += fmt.Sprintf("\n\nHint: Run the following command to create the default configuration and desktop-autostart entry:\n\n    %s setup\n", setup.ShellArgument(os.Args[0]))
 	}
 	return message
 }

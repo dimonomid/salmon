@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/dimonomid/salmon/internal/setup"
 )
@@ -73,24 +72,13 @@ func defaultWatchAutostartPath() string {
 // directory.
 func watchStartCommand(configFilename string) (string, error) {
 	if configFilename == defaultWatchConfigPath() {
-		return shellArgument(os.Args[0]), nil
+		return setup.ShellArgument(os.Args[0]), nil
 	}
 	absoluteConfigFilename, err := filepath.Abs(configFilename)
 	if err != nil {
 		return "", fmt.Errorf("resolve config path: %w", err)
 	}
-	return fmt.Sprintf("%s --config %s", shellArgument(os.Args[0]), shellArgument(absoluteConfigFilename)), nil
-}
-
-// shellArgument formats an argument for a POSIX shell command line. It leaves
-// ordinary path-like values unquoted to keep command hints easy to read.
-func shellArgument(argument string) string {
-	if argument != "" && strings.IndexFunc(argument, func(character rune) bool {
-		return !strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_@%+=:,./-", character)
-	}) == -1 {
-		return argument
-	}
-	return "'" + strings.ReplaceAll(argument, "'", "'\"'\"'") + "'"
+	return fmt.Sprintf("%s --config %s", setup.ShellArgument(os.Args[0]), setup.ShellArgument(absoluteConfigFilename)), nil
 }
 
 // userConfigHome returns XDG_CONFIG_HOME or fall back to $HOME/.config
