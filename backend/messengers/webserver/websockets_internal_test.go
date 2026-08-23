@@ -84,11 +84,11 @@ func TestSendWSMessageUnblocksWhenConnectionIsCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	connection := &wsConn{ctx: ctx, ctxCancel: cancel}
 	messages := make(chan wsTxMsg, 1)
-	messages <- wsTxMsg{Event: wsEventResponse}
+	messages <- wsTxMsg{Event: wsEventOngoingIncidentsUpdate}
 
 	result := make(chan bool, 1)
 	go func() {
-		result <- sendWSMessage(connection, messages, wsTxMsg{Event: wsEventResponse})
+		result <- sendWSMessage(connection, messages, wsTxMsg{Event: wsEventOngoingIncidentsUpdate})
 	}()
 
 	// The queue is full, so cancellation must release the blocked producer.

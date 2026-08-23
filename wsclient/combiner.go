@@ -41,7 +41,6 @@ type CombinerParams struct {
 	Config Config
 
 	OngoingIncidentsHandler func(notif *salmon.Notification)
-	//AuthnHandler               func(user, err string)
 	//ServerInternalErrorHandler func(err string)
 
 	Clock          clock.Clock

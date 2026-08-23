@@ -12,29 +12,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-type wsReq struct {
-	Command wsCmd       `json:"command"`
-	ID      wsReqID     `json:"reqId"`
-	Data    interface{} `json:"data,omitempty"`
-}
-
 type wsMsgServer struct {
-	Event  string          `json:"event"`
-	Result string          `json:"result,omitempty"`
-	ID     wsReqID         `json:"reqId,omitempty"`
-	Data   json.RawMessage `json:"data,omitempty"`
+	Event string          `json:"event"`
+	Data  json.RawMessage `json:"data,omitempty"`
 }
-
-type wsReqAuthenticate struct {
-	// TODO
-}
-
-type wsCmd string
-type wsReqID int
-
-const (
-	wsCmdAuthenticate = "Authenticate"
-)
 
 const (
 	// heartbeatPeriod is how often the server is expected to send heartbeats
@@ -145,31 +126,6 @@ mainLoop:
 		fmt.Println("Connected")
 		c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindConnected, Time: time.Now()})
 
-		/*
-
-					authnMsg := wsReqAuthenticate{
-			      // TODO
-					}
-
-					authnReq := wsReq{
-						Command: wsCmdAuthenticate,
-						Data:    authnMsg,
-					}
-
-					data, err := json.Marshal(authnReq)
-					if err != nil {
-						fmt.Println("Error marshaling authn msg:", err)
-						os.Exit(1)
-					}
-
-					if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-						connError = err.Error()
-						fmt.Println("Write error:", err)
-						continue mainLoop
-					}
-
-		*/
-
 		connError = ""
 		select {
 		case c.params.ConnErrorCh <- connError:
@@ -240,25 +196,6 @@ mainLoop:
 						// TODO: better error handling
 						fmt.Println("failed to send ongoing incidents update: buffer full")
 					}
-
-				case "AuthnResult":
-					fmt.Println("TODO AuthnResult")
-					//if msgServer.Result == "OK" {
-					//var authnData webserver.AuthnMsg
-
-					//if err := json.Unmarshal(dataJSON, &authnData); err != nil {
-					//fmt.Println("authn msg decode error:", err)
-					//continue
-					//}
-
-					//if c.params.AuthnHandler != nil {
-					//c.params.AuthnHandler(authnData.User, "")
-					//}
-					//} else {
-					//if c.params.AuthnHandler != nil {
-					//c.params.AuthnHandler(nil, string(dataJSON))
-					//}
-					//}
 
 				case "InternalError":
 					var errStr string

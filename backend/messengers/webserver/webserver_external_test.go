@@ -91,6 +91,34 @@ func TestServerRejectsCrossOriginWebsockets(t *testing.T) {
 	<-done
 }
 
+func TestServerClosesWebsocketWhenClientSendsMessage(t *testing.T) {
+	webserver, notifications, done := startServer(t, itemsboard.New())
+	for name, messageType := range map[string]int{
+		"text":   websocket.TextMessage,
+		"binary": websocket.BinaryMessage,
+	} {
+		t.Run(name, func(t *testing.T) {
+			connection := dialServer(t, webserver, nil)
+			_ = readEnvelope(t, connection)
+
+			if err := connection.WriteMessage(messageType, []byte(`{"command":"Authenticate"}`)); err != nil {
+				t.Fatal(err)
+			}
+			_ = connection.SetReadDeadline(time.Now().Add(3 * time.Second))
+			if _, _, err := connection.ReadMessage(); !websocket.IsCloseError(err, websocket.ClosePolicyViolation) {
+				t.Fatalf("read error = %v, want policy-violation close", err)
+			}
+		})
+	}
+
+	close(notifications)
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("server did not shut down")
+	}
+}
+
 func TestServerReportsBindFailure(t *testing.T) {
 	first, firstNotifications, firstDone := startServer(t, itemsboard.New())
 	notifications := make(chan *salmon.Notification)
