@@ -50,6 +50,10 @@ type CombinerParams struct {
 }
 
 func NewCombiner(params CombinerParams) (*Combiner, error) {
+	if err := params.Config.Validate(); err != nil {
+		return nil, err
+	}
+
 	c := &Combiner{
 		params: params,
 

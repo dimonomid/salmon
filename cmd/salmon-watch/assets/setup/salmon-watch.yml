@@ -1,4 +1,4 @@
 wsClient:
   servers:
-    - id: local # This is just an arbitrary string, you can use whatever.
+    - id: local # Arbitrary but unique ID for this server.
       addr: localhost:41990

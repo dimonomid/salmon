@@ -35,3 +35,14 @@ func TestLoadWatchConfigRejectsUnknownFields(t *testing.T) {
 		t.Fatalf("loadConfig error = %v, want unknown-field error", err)
 	}
 }
+
+func TestLoadWatchConfigRejectsInvalidServerIDs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "salmon-watch.yml")
+	data := "wsClient:\n  servers:\n    - id: remote\n      addr: first:41990\n    - id: remote\n      addr: second:41990\n"
+	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadConfig(path); err == nil || !strings.Contains(err.Error(), `id "remote" duplicates`) {
+		t.Fatalf("loadConfig error = %v, want duplicate-ID error", err)
+	}
+}

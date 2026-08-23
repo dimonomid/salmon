@@ -110,7 +110,7 @@ machine: open the config file `~/.config/salmon-watch/salmon-watch.yml`, and
 add one more entry to the `wsClient.servers` array, like that:
 
 ```yaml
-    - id: myserver # This is just an arbitrary string, you can use whatever.
+    - id: myserver # Arbitrary but unique ID for this server.
       addr: something.com:41990 # Replace something.com with the actual IP or hostname.
 ```
 
@@ -146,4 +146,3 @@ running like that forever.
 TODO: explain that the authentication would only be useful if the transport is
 encrypted, which requires SSL or WireGuard, and if we go this far, it's easier to
 just use an SSH tunnel.
-

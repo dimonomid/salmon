@@ -28,6 +28,9 @@ func loadConfig(filename string) (*config, error) {
 	if err := yaml.UnmarshalStrict(data, &cfg); err != nil {
 		return nil, errors.Trace(err)
 	}
+	if err := cfg.WSClient.Validate(); err != nil {
+		return nil, errors.Trace(err)
+	}
 
 	return &cfg, nil
 }

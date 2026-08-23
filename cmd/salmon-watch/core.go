@@ -68,6 +68,10 @@ type salmonWatchCoreParams struct {
 }
 
 func newSalmonWatchCore(params salmonWatchCoreParams) (*salmonWatchCore, error) {
+	if err := params.Config.Validate(); err != nil {
+		return nil, err
+	}
+
 	var incidentState *incidentState
 	var err error
 	if params.SnoozeCheckInterval > 0 {
