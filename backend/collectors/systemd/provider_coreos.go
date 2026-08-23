@@ -3,6 +3,7 @@ package systemd
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/coreos/go-systemd/v22/dbus"
@@ -17,7 +18,9 @@ type ProviderCoreos struct {
 
 	conn *dbus.Conn
 
-	teardownCh chan chan struct{}
+	stop      chan struct{}
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 var _ Provider = &ProviderCoreos{}
@@ -33,9 +36,10 @@ func NewProviderCoreos(params ProviderCoreosParams) (*ProviderCoreos, error) {
 	}
 
 	p := &ProviderCoreos{
-		params:     params,
-		conn:       conn,
-		teardownCh: make(chan chan struct{}),
+		params: params,
+		conn:   conn,
+		stop:   make(chan struct{}),
+		done:   make(chan struct{}),
 	}
 
 	go p.run()
@@ -44,9 +48,8 @@ func NewProviderCoreos(params ProviderCoreosParams) (*ProviderCoreos, error) {
 }
 
 func (p *ProviderCoreos) Close() {
-	c := make(chan struct{})
-	p.teardownCh <- c
-	<-c
+	p.closeOnce.Do(func() { close(p.stop) })
+	<-p.done
 }
 
 func (p *ProviderCoreos) run() {
@@ -71,8 +74,14 @@ func (p *ProviderCoreos) runSubscription(
 	errCh <-chan error,
 	closeConn func(),
 ) {
+	defer close(p.done)
+	defer close(p.params.Common.UnitUpdatesChan)
+	defer closeConn()
+
 	for {
 		select {
+		case <-p.stop:
+			return
 		case upd, ok := <-updatesCh:
 			if !ok {
 				updatesCh = nil
@@ -92,31 +101,32 @@ func (p *ProviderCoreos) runSubscription(
 				}
 			}
 
-			p.sendWithTimeout(&UnitUpdate{
+			if !p.sendUpdate(&UnitUpdate{
 				Units: m,
-			})
+			}) {
+				return
+			}
 		case err, ok := <-errCh:
 			if !ok {
 				errCh = nil
 				continue
 			}
-			p.sendWithTimeout(&UnitUpdate{
+			if !p.sendUpdate(&UnitUpdate{
 				Err: err,
-			})
-
-		case c := <-p.teardownCh:
-			closeConn()
-			close(p.params.Common.UnitUpdatesChan)
-			close(c)
-			return
+			}) {
+				return
+			}
 		}
 	}
 }
 
-func (p *ProviderCoreos) sendWithTimeout(msg *UnitUpdate) {
+// sendUpdate preserves provider backpressure during normal operation while
+// allowing Close to interrupt a blocked send.
+func (p *ProviderCoreos) sendUpdate(msg *UnitUpdate) bool {
 	select {
 	case p.params.Common.UnitUpdatesChan <- msg:
-	case <-time.After(1 * time.Second):
-		panic("wasn't able to send a message after 1s")
+		return true
+	case <-p.stop:
+		return false
 	}
 }

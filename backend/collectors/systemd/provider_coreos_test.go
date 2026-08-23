@@ -11,8 +11,9 @@ import (
 func TestProviderCoreosSubscriptionLoopStopsOnClose(t *testing.T) {
 	unitUpdates := make(chan *UnitUpdate, 2)
 	provider := &ProviderCoreos{
-		params:     ProviderCoreosParams{Common: ProviderParams{UnitUpdatesChan: unitUpdates}},
-		teardownCh: make(chan chan struct{}),
+		params: ProviderCoreosParams{Common: ProviderParams{UnitUpdatesChan: unitUpdates}},
+		stop:   make(chan struct{}),
+		done:   make(chan struct{}),
 	}
 	updates := make(chan map[string]*dbus.UnitStatus, 1)
 	errorsCh := make(chan error, 1)
@@ -55,6 +56,45 @@ func TestProviderCoreosSubscriptionLoopStopsOnClose(t *testing.T) {
 	}
 	if _, ok := <-unitUpdates; ok {
 		t.Fatal("provider output channel remains open after Close")
+	}
+}
+
+func TestProviderCoreosCloseInterruptsBlockedUpdate(t *testing.T) {
+	unitUpdates := make(chan *UnitUpdate)
+	provider := &ProviderCoreos{
+		params: ProviderCoreosParams{Common: ProviderParams{UnitUpdatesChan: unitUpdates}},
+		stop:   make(chan struct{}),
+		done:   make(chan struct{}),
+	}
+	updates := make(chan map[string]*dbus.UnitStatus)
+	errorsCh := make(chan error)
+	connectionClosed := make(chan struct{})
+	go provider.runSubscription(updates, errorsCh, func() { close(connectionClosed) })
+
+	// Once this send completes, the provider has accepted the subscription
+	// update and is trying to forward it to the unread output channel.
+	updates <- map[string]*dbus.UnitStatus{
+		"blocked.service": {Name: "blocked.service", ActiveState: "failed"},
+	}
+
+	closeReturned := make(chan struct{})
+	go func() {
+		provider.Close()
+		provider.Close()
+		close(closeReturned)
+	}()
+	for name, channel := range map[string]<-chan struct{}{
+		"connection cleanup": connectionClosed,
+		"Close":              closeReturned,
+	} {
+		select {
+		case <-channel:
+		case <-time.After(3 * time.Second):
+			t.Fatalf("timed out waiting for %s", name)
+		}
+	}
+	if _, ok := <-unitUpdates; ok {
+		t.Fatal("provider output channel remains open after blocked-send shutdown")
 	}
 }
 
