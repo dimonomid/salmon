@@ -112,7 +112,6 @@ func (s *statusWebserver) snooze(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-
 	var request snoozeRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, "invalid snooze request", http.StatusBadRequest)
@@ -136,7 +135,6 @@ func (s *statusWebserver) unsnooze(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-
 	var request unsnoozeRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.Key == "" {
 		http.Error(w, "invalid unsnooze request", http.StatusBadRequest)
@@ -229,10 +227,10 @@ func (s *statusWebserver) wsConnect(w http.ResponseWriter, r *http.Request) {
 // if that fails for whatever reason, tries to listen on a random port, and if
 // that fails as well, panics.
 func setupWebserver(statusWebserver *statusWebserver) net.Listener {
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", defPort))
+	listener, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", defPort))
 	if err != nil {
 		fmt.Printf("Failed to listen on a default port %d (%s), listening on random port\n", defPort, err)
-		listener, err = net.Listen("tcp", ":0")
+		listener, err = net.Listen("tcp4", "127.0.0.1:0")
 		if err != nil {
 			panic(err.Error())
 		}
