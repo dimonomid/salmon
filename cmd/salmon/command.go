@@ -9,6 +9,7 @@ func newRootCommand() *cobra.Command {
 		Use:          "salmon",
 		Short:        "Monitor system health and publish its status",
 		SilenceUsage: true,
+		Args:         cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runSalmon(configFilename)
 		},
@@ -19,6 +20,7 @@ func newRootCommand() *cobra.Command {
 	configCommand.AddCommand(&cobra.Command{
 		Use:   "init",
 		Short: "Create the default configuration if it does not exist",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return initializeSalmonConfig(cmd.OutOrStdout(), configFilename)
 		},
@@ -28,6 +30,7 @@ func newRootCommand() *cobra.Command {
 	installCommand := &cobra.Command{
 		Use:   "install",
 		Short: "Install and enable the systemd service",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return installSalmonService(cmd.OutOrStdout(), configFilename)
 		},
@@ -38,6 +41,7 @@ func newRootCommand() *cobra.Command {
 		Use:   "setup",
 		Short: "Perform the complete setup",
 		Long:  "Equivalent to running `salmon config init` followed by `salmon service install`.",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := initializeSalmonConfig(cmd.OutOrStdout(), configFilename); err != nil {
 				return err

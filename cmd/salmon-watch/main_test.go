@@ -33,6 +33,21 @@ func TestWatchConfigInitCreatesConfig(t *testing.T) {
 	}
 }
 
+func TestWatchRunnableCommandsRejectPositionalArguments(t *testing.T) {
+	for _, args := range [][]string{
+		{"unexpected"},
+		{"config", "init", "unexpected"},
+		{"autostart", "install", "unexpected"},
+		{"setup", "unexpected"},
+	} {
+		command := newWatchRootCommand()
+		command.SetArgs(args)
+		if err := command.Execute(); err == nil {
+			t.Errorf("command %q accepted an unexpected positional argument", args)
+		}
+	}
+}
+
 func TestWatchStartCommand(t *testing.T) {
 	got, err := watchStartCommand(defaultWatchConfigPath())
 	if err != nil {

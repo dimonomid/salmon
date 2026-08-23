@@ -52,6 +52,21 @@ func TestConfigInitCreatesConfigWithoutOverwritingIt(t *testing.T) {
 	}
 }
 
+func TestRunnableCommandsRejectPositionalArguments(t *testing.T) {
+	for _, args := range [][]string{
+		{"unexpected"},
+		{"config", "init", "unexpected"},
+		{"service", "install", "unexpected"},
+		{"setup", "unexpected"},
+	} {
+		command := newRootCommand()
+		command.SetArgs(args)
+		if err := command.Execute(); err == nil {
+			t.Errorf("command %q accepted an unexpected positional argument", args)
+		}
+	}
+}
+
 func TestSalmonServiceTemplateIncludesExecutableAndConfig(t *testing.T) {
 	unit, err := setup.RenderSystemdUnitTemplate("salmon.service.tpl", string(mustSetupAsset("assets/setup/salmon.service.tpl")), struct {
 		Executable     string

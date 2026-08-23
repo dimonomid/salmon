@@ -14,6 +14,7 @@ func newWatchRootCommand() *cobra.Command {
 		Use:          "salmon-watch",
 		Short:        "Show Salmon status in the desktop tray",
 		SilenceUsage: true,
+		Args:         cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			cfg, err := loadConfig(configFilename)
 			if err != nil {
@@ -32,6 +33,7 @@ func newWatchRootCommand() *cobra.Command {
 	configCommand.AddCommand(&cobra.Command{
 		Use:   "init",
 		Short: "Create the default configuration if it does not exist",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return initializeWatchConfig(cmd.OutOrStdout(), configFilename)
 		},
@@ -41,6 +43,7 @@ func newWatchRootCommand() *cobra.Command {
 	autostartCommand.AddCommand(&cobra.Command{
 		Use:   "install",
 		Short: "Install the desktop autostart entry",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return installWatchAutostart(cmd.OutOrStdout(), configFilename)
 		},
@@ -50,6 +53,7 @@ func newWatchRootCommand() *cobra.Command {
 		Use:   "setup",
 		Short: "Perform the complete setup",
 		Long:  "Equivalent to running `salmon-watch config init` followed by `salmon-watch autostart install`.",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := initializeWatchConfig(cmd.OutOrStdout(), configFilename); err != nil {
 				return err
