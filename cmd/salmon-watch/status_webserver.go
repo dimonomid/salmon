@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net"
@@ -39,6 +40,13 @@ type statusWebserverParams struct {
 	// OnUnsnooze removes a snooze. The incident-state update hook publishes the
 	// resulting snapshot to connected status pages.
 	OnUnsnooze func(key string) error
+}
+
+// localStatusServer owns the HTTP server and listener used by the local status
+// UI. Its private handler avoids registrations on http.DefaultServeMux.
+type localStatusServer struct {
+	server   *http.Server
+	listener net.Listener
 }
 
 // statusWebsocketClient has a single websocket writer and a buffered queue of
@@ -223,10 +231,10 @@ func (s *statusWebserver) wsConnect(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// setupWebserver tries to create a listener on the default port (defPort);
-// if that fails for whatever reason, tries to listen on a random port, and if
-// that fails as well, panics.
-func setupWebserver(statusWebserver *statusWebserver) net.Listener {
+// setupWebserver creates the local status HTTP server on the default port
+// (defPort). If that port is unavailable, it tries a random port and panics if
+// that also fails.
+func setupWebserver(statusWebserver *statusWebserver) *localStatusServer {
 	listener, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", defPort))
 	if err != nil {
 		fmt.Printf("Failed to listen on a default port %d (%s), listening on random port\n", defPort, err)
@@ -236,9 +244,32 @@ func setupWebserver(statusWebserver *statusWebserver) net.Listener {
 		}
 	}
 
-	// The status page and browser websocket share this local HTTP server.
-	http.Handle("/", rootHandler(statusWebserver))
-	return listener
+	return &localStatusServer{
+		server: &http.Server{
+			Handler: rootHandler(statusWebserver),
+		},
+		listener: listener,
+	}
+}
+
+func (s *localStatusServer) Addr() net.Addr {
+	return s.listener.Addr()
+}
+
+func (s *localStatusServer) Serve() error {
+	return s.server.Serve(s.listener)
+}
+
+func (s *localStatusServer) Close() error {
+	serverErr := s.server.Close()
+	listenerErr := s.listener.Close()
+	if serverErr != nil {
+		return serverErr
+	}
+	if listenerErr != nil && !errors.Is(listenerErr, net.ErrClosed) {
+		return listenerErr
+	}
+	return nil
 }
 
 func rootHandler(statusWebserver *statusWebserver) http.Handler {

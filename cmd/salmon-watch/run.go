@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -15,8 +16,9 @@ import (
 
 // watchApp owns the configuration and lifecycle state of one tray instance.
 type watchApp struct {
-	config *config
-	core   *salmonWatchCore
+	config       *config
+	core         *salmonWatchCore
+	statusServer *localStatusServer
 }
 
 // onReady initializes the tray application after systray has locked its OS
@@ -50,13 +52,15 @@ func (app *watchApp) onReady() {
 		os.Exit(1)
 	}
 
-	listener := setupWebserver(app.core.statusWebserver)
-	port := listener.Addr().(*net.TCPAddr).Port
+	app.statusServer = setupWebserver(app.core.statusWebserver)
+	port := app.statusServer.Addr().(*net.TCPAddr).Port
 
 	fmt.Printf("Listening on %d\n", port)
 
 	go func() {
-		panic(http.Serve(listener, nil))
+		if err := app.statusServer.Serve(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			panic(err)
+		}
 	}()
 
 	go func() {
@@ -83,6 +87,11 @@ func watchConfigReadError(configFilename string, err error) error {
 
 // onExit shuts down Salmon Watch resources after the tray exits.
 func (app *watchApp) onExit() {
+	if app.statusServer != nil {
+		if err := app.statusServer.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to close status webserver: %s\n", err)
+		}
+	}
 	if app.core != nil {
 		app.core.Close()
 	}
