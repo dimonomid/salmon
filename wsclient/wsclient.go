@@ -153,6 +153,12 @@ mainLoop:
 			defer func() {
 				close(disconnected)
 			}()
+			disconnectWithError := func(err error) {
+				connError = err.Error()
+				c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindDisconnected, Time: time.Now()})
+				fmt.Println("Server message error:", err)
+				_ = conn.Close()
+			}
 			for {
 				_, message, err := conn.ReadMessage()
 				if err != nil {
@@ -178,7 +184,8 @@ mainLoop:
 
 				var msgServer wsMsgServer
 				if err := json.Unmarshal(message, &msgServer); err != nil {
-					fmt.Println("Decode error:", err)
+					disconnectWithError(fmt.Errorf("decoding server message: %w", err))
+					return
 				}
 
 				switch msgServer.Event {
@@ -186,7 +193,12 @@ mainLoop:
 					var notif *salmon.Notification
 
 					if err := json.Unmarshal(msgServer.Data, &notif); err != nil {
-						fmt.Println("InternalError decode error:", err)
+						disconnectWithError(fmt.Errorf("decoding %s data: %w", msgServer.Event, err))
+						return
+					}
+					if notif == nil {
+						disconnectWithError(fmt.Errorf("decoding %s data: notification is null", msgServer.Event))
+						return
 					}
 
 					select {
@@ -201,7 +213,8 @@ mainLoop:
 					var errStr string
 
 					if err := json.Unmarshal(msgServer.Data, &errStr); err != nil {
-						fmt.Println("InternalError decode error:", err)
+						disconnectWithError(fmt.Errorf("decoding InternalError data: %w", err))
+						return
 					}
 
 					select {
@@ -219,6 +232,8 @@ mainLoop:
 			select {
 
 			case <-disconnected:
+				readTimer.Stop()
+				_ = conn.Close()
 				continue mainLoop
 
 			case <-c.interrupt:
