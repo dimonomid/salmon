@@ -29,6 +29,7 @@ type statusWebserver struct {
 
 	clientsMtx sync.Mutex
 	clients    map[*statusWebsocketClient]struct{}
+	closing    bool
 }
 
 // statusWebserverParams contains the application callbacks needed by the
@@ -45,8 +46,11 @@ type statusWebserverParams struct {
 // localStatusServer owns the HTTP server and listener used by the local status
 // UI. Its private handler avoids registrations on http.DefaultServeMux.
 type localStatusServer struct {
-	server   *http.Server
-	listener net.Listener
+	server          *http.Server
+	listener        net.Listener
+	statusWebserver *statusWebserver
+	closeOnce       sync.Once
+	closeErr        error
 }
 
 // statusWebsocketClient has a single websocket writer and a buffered queue of
@@ -56,6 +60,11 @@ type statusWebsocketClient struct {
 	updates  chan statusWebsocketMessage
 	done     chan struct{}
 	doneOnce sync.Once
+}
+
+func (c *statusWebsocketClient) close() {
+	c.doneOnce.Do(func() { close(c.done) })
+	_ = c.conn.Close()
 }
 
 // statusWebsocketMessage is the local browser API payload.
@@ -198,6 +207,11 @@ func (s *statusWebserver) wsConnect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.clientsMtx.Lock()
+	if s.closing {
+		s.clientsMtx.Unlock()
+		client.close()
+		return
+	}
 	s.clients[client] = struct{}{}
 	client.updates <- s.message()
 	s.clientsMtx.Unlock()
@@ -206,8 +220,7 @@ func (s *statusWebserver) wsConnect(w http.ResponseWriter, r *http.Request) {
 		s.clientsMtx.Lock()
 		delete(s.clients, client)
 		s.clientsMtx.Unlock()
-		client.doneOnce.Do(func() { close(client.done) })
-		conn.Close()
+		client.close()
 	}()
 
 	go func() {
@@ -215,7 +228,7 @@ func (s *statusWebserver) wsConnect(w http.ResponseWriter, r *http.Request) {
 			select {
 			case message := <-client.updates:
 				if err := conn.WriteJSON(message); err != nil {
-					conn.Close()
+					client.close()
 					return
 				}
 			case <-client.done:
@@ -228,6 +241,24 @@ func (s *statusWebserver) wsConnect(w http.ResponseWriter, r *http.Request) {
 		if _, _, err := conn.NextReader(); err != nil {
 			return
 		}
+	}
+}
+
+// closeClients prevents new WebSocket subscriptions and closes all existing
+// clients. Connections upgraded concurrently with shutdown are rejected when
+// they attempt to register under clientsMtx.
+func (s *statusWebserver) closeClients() {
+	s.clientsMtx.Lock()
+	s.closing = true
+	clients := make([]*statusWebsocketClient, 0, len(s.clients))
+	for client := range s.clients {
+		clients = append(clients, client)
+		delete(s.clients, client)
+	}
+	s.clientsMtx.Unlock()
+
+	for _, client := range clients {
+		client.close()
 	}
 }
 
@@ -248,7 +279,8 @@ func setupWebserver(statusWebserver *statusWebserver) *localStatusServer {
 		server: &http.Server{
 			Handler: rootHandler(statusWebserver),
 		},
-		listener: listener,
+		listener:        listener,
+		statusWebserver: statusWebserver,
 	}
 }
 
@@ -261,15 +293,19 @@ func (s *localStatusServer) Serve() error {
 }
 
 func (s *localStatusServer) Close() error {
-	serverErr := s.server.Close()
-	listenerErr := s.listener.Close()
-	if serverErr != nil {
-		return serverErr
-	}
-	if listenerErr != nil && !errors.Is(listenerErr, net.ErrClosed) {
-		return listenerErr
-	}
-	return nil
+	s.closeOnce.Do(func() {
+		// WebSocket connections are hijacked from net/http, so mark subscription
+		// admission closed and drain them explicitly before closing the HTTP server.
+		s.statusWebserver.closeClients()
+		serverErr := s.server.Close()
+		listenerErr := s.listener.Close()
+		if serverErr != nil {
+			s.closeErr = serverErr
+		} else if listenerErr != nil && !errors.Is(listenerErr, net.ErrClosed) {
+			s.closeErr = listenerErr
+		}
+	})
+	return s.closeErr
 }
 
 func rootHandler(statusWebserver *statusWebserver) http.Handler {
