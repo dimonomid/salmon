@@ -16,12 +16,11 @@ import (
 	"github.com/dimonomid/salmon/internal/setup"
 )
 
-var notify notificator
-
-// core owns Salmon Watch's background Salmon connections for shutdown cleanup.
-var core *salmonWatchCore
-
-var watchConfig *config
+// watchApp owns the configuration and lifecycle state of one tray instance.
+type watchApp struct {
+	config *config
+	core   *salmonWatchCore
+}
 
 // main executes the Salmon Watch command-line application.
 func main() {
@@ -43,10 +42,10 @@ func newWatchRootCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("%s", watchConfigReadError(configFilename, err))
 			}
-			watchConfig = cfg
+			app := &watchApp{config: cfg}
 			// systray.Run must be the only operation that runs the tray app: it
 			// locks its OS thread before invoking onReady.
-			systray.Run(onReady, onExit)
+			systray.Run(app.onReady, app.onExit)
 			return nil
 		},
 	}
@@ -134,7 +133,7 @@ func installWatchAutostart(output io.Writer, configFilename string) error {
 
 // onReady initializes the tray application after systray has locked its OS
 // thread.
-func onReady() {
+func (app *watchApp) onReady() {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		panic(err.Error())
@@ -143,14 +142,14 @@ func onReady() {
 	mitemStatus := systray.AddMenuItem(trayStatusTitle(trayState{}), "")
 	mitemExit := systray.AddMenuItem("Exit", "")
 
-	notify = newDesktopNotificationSink()
+	notify := newDesktopNotificationSink()
 	notify.Push("Hello there", "Salmon Watch started")
 
 	loadTrayIcons()
 
 	applyIcon(trayState{Alerting: overallStateUnknown})
-	core, err = newSalmonWatchCore(salmonWatchCoreParams{
-		Config:        watchConfig.WSClient,
+	app.core, err = newSalmonWatchCore(salmonWatchCoreParams{
+		Config:        app.config.WSClient,
 		StatePath:     filepath.Join(homeDir, ".salmon-watch-state.json"),
 		Notifications: notify,
 		OnIconState: func(state trayState) {
@@ -163,7 +162,7 @@ func onReady() {
 		os.Exit(1)
 	}
 
-	listener := setupWebserver(core.statusWebserver)
+	listener := setupWebserver(app.core.statusWebserver)
 	port := listener.Addr().(*net.TCPAddr).Port
 
 	fmt.Printf("Listening on %d\n", port)
@@ -243,9 +242,9 @@ func userConfigHome() string {
 }
 
 // onExit shuts down Salmon Watch resources after the tray exits.
-func onExit() {
-	if core != nil {
-		core.Close()
+func (app *watchApp) onExit() {
+	if app.core != nil {
+		app.core.Close()
 	}
 	fmt.Println("Exiting")
 }
