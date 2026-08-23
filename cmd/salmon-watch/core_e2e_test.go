@@ -296,7 +296,10 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 	}
 	// Notification order is intentionally not asserted because the two source
 	// WebSockets are concurrent.
-	gotTitles := notifications.titles()
+	// Receiving the combined status does not guarantee that both desktop
+	// notifications have been delivered: status and notification delivery are
+	// separate asynchronous outputs.
+	gotTitles := notifications.waitForCount(t, 2)
 	gotTitleSet := map[string]bool{}
 	for _, title := range gotTitles {
 		gotTitleSet[title] = true
