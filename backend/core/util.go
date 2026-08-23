@@ -20,14 +20,14 @@ func CheckID(id string) error {
 		}
 
 		if i == 0 {
-			return fmt.Errorf("%q is not a valid id, it must start with a lowercased letter")
+			return fmt.Errorf("%q is not a valid id, it must start with a lowercased letter", id)
 		}
 
 		if r >= '0' && r <= '9' || r == '-' || r == '_' {
 			continue
 		}
 
-		return fmt.Errorf("%q is not a valid id, it must only contain lowercase English letters, numbers, hyphens and underscores")
+		return fmt.Errorf("%q is not a valid id, it must only contain lowercase English letters, numbers, hyphens and underscores", id)
 	}
 
 	return nil
