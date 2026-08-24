@@ -111,6 +111,8 @@ func (s *Webserver) run() {
 			}
 			if !sendNotificationToSubscriber(sub.ch, notif) {
 				fmt.Fprintf(os.Stderr, "WebSocket subscriber %d notification queue is full; disconnecting slow client\n", sub.id)
+				// Close the connection immediately instead of draining its stale
+				// backlog. If the client reconnects, it receives a fresh snapshot.
 				s.unsubscribe(sub.id)
 			}
 		}

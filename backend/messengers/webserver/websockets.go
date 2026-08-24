@@ -2,7 +2,6 @@ package webserver
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -29,8 +28,7 @@ const (
 var upgrader = websocket.Upgrader{}
 
 type wsConn struct {
-	conn   *websocket.Conn
-	txMsgs chan wsTxMsg
+	conn *websocket.Conn
 
 	// ctx is a context which is canceled when the client disconnects.
 	ctx       context.Context
@@ -50,8 +48,7 @@ func (s *Webserver) wsConnect(w http.ResponseWriter, r *http.Request) (resp inte
 	ctx, ctxCancel := context.WithCancel(context.Background())
 
 	conn := &wsConn{
-		conn:   c,
-		txMsgs: make(chan wsTxMsg, 32),
+		conn: c,
 
 		ctx:       ctx,
 		ctxCancel: ctxCancel,
@@ -65,52 +62,10 @@ func (s *Webserver) wsConnect(w http.ResponseWriter, r *http.Request) (resp inte
 	}
 	conn.subID = subID
 
-	go s.notifHandleLoop(conn, ch, conn.txMsgs)
 	go s.wsRxLoop(conn)
-	go s.wsTxLoop(conn, conn.txMsgs)
+	go s.wsTxLoop(conn, ch)
 
 	return nil, nil
-}
-
-func (s *Webserver) notifHandleLoop(conn *wsConn, ch <-chan *salmon.Notification, txMsgs chan<- wsTxMsg) {
-	initialItems := s.params.Common.ItemsBoard.Get()
-
-	if !sendWSMessage(conn, txMsgs, wsTxMsg{
-		Event: wsEventOngoingIncidentsSnapshot,
-		Data: &salmon.Notification{
-			Time: time.Now(),
-			OngoingIncidents: salmon.OngoingIncidentsWDelta{
-				Total: initialItems,
-			},
-		},
-	}) {
-		return
-	}
-
-	for {
-		select {
-		case notif := <-ch:
-			if !sendWSMessage(conn, txMsgs, wsTxMsg{
-				Event: wsEventOngoingIncidentsUpdate,
-				Data:  notif,
-			}) {
-				return
-			}
-		case <-conn.ctx.Done():
-			return
-		}
-	}
-}
-
-// sendWSMessage queues a message unless the connection has been canceled. It
-// prevents producers from remaining blocked on a full queue after TX exits.
-func sendWSMessage(conn *wsConn, txMsgs chan<- wsTxMsg, msg wsTxMsg) bool {
-	select {
-	case txMsgs <- msg:
-		return true
-	case <-conn.ctx.Done():
-		return false
-	}
 }
 
 func (s *Webserver) wsRxLoop(conn *wsConn) (err error) {
@@ -136,11 +91,25 @@ func (s *Webserver) wsRxLoop(conn *wsConn) (err error) {
 	}
 }
 
-func (s *Webserver) wsTxLoop(conn *wsConn, txMsgs <-chan wsTxMsg) {
+func (s *Webserver) wsTxLoop(conn *wsConn, notifications <-chan *salmon.Notification) {
 	defer func() {
 		fmt.Println("breaking out of tx loop")
 		s.unsubscribe(conn.subID)
 	}()
+
+	initialItems := s.params.Common.ItemsBoard.Get()
+	if err := conn.conn.WriteJSON(wsTxMsg{
+		Event: wsEventOngoingIncidentsSnapshot,
+		Data: &salmon.Notification{
+			Time: time.Now(),
+			OngoingIncidents: salmon.OngoingIncidentsWDelta{
+				Total: initialItems,
+			},
+		},
+	}); err != nil {
+		fmt.Println("initial snapshot write error:", err)
+		return
+	}
 
 	// Create ticker for heartbeats
 	heartbeats := time.NewTicker(10 * time.Second)
@@ -151,21 +120,12 @@ func (s *Webserver) wsTxLoop(conn *wsConn, txMsgs <-chan wsTxMsg) {
 		case <-conn.ctx.Done():
 			return
 
-		case msg := <-txMsgs:
-			w, err := conn.conn.NextWriter(websocket.TextMessage)
-			if err != nil {
-				fmt.Println("NextWriter err:", err)
-				return
-			}
-
-			encoder := json.NewEncoder(w)
-			err = encoder.Encode(msg)
-			if err != nil {
-				fmt.Println("Encode err:", err)
-				return
-			}
-			if err := w.Close(); err != nil {
-				fmt.Println("Close err:", err)
+		case notif := <-notifications:
+			if err := conn.conn.WriteJSON(wsTxMsg{
+				Event: wsEventOngoingIncidentsUpdate,
+				Data:  notif,
+			}); err != nil {
+				fmt.Println("notification write error:", err)
 				return
 			}
 

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/dimonomid/salmon"
+	"github.com/dimonomid/salmon/backend/itemsboard"
 	"github.com/dimonomid/salmon/backend/messengers"
 	"github.com/gorilla/websocket"
 )
@@ -39,15 +40,16 @@ func TestWSTransmitFailureUnsubscribesConnection(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	connection := &wsConn{
 		conn:      serverConnection,
-		txMsgs:    make(chan wsTxMsg, 128),
 		ctx:       ctx,
 		ctxCancel: cancel,
 	}
 	webserver := &Webserver{
+		params:  Params{Common: messengers.Params{ItemsBoard: itemsboard.New()}},
 		subs:    make(map[int]chan *salmon.Notification),
 		wsConns: make(map[int]*wsConn),
 	}
-	connection.subID, _, _ = webserver.subscribe(connection)
+	var notifications chan *salmon.Notification
+	connection.subID, notifications, _ = webserver.subscribe(connection)
 
 	// Resetting the client TCP connection makes the server's write side fail
 	// without a server receive loop performing cleanup first.
@@ -62,10 +64,12 @@ func TestWSTransmitFailureUnsubscribesConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for i := 0; i < cap(connection.txMsgs); i++ {
-		connection.txMsgs <- wsTxMsg{Event: wsEventOngoingIncidentsUpdate}
+	// Queue several writes so the test does not depend on the first write being
+	// the one that observes the peer's TCP reset.
+	for i := 0; i < cap(notifications); i++ {
+		notifications <- &salmon.Notification{}
 	}
-	go webserver.wsTxLoop(connection, connection.txMsgs)
+	go webserver.wsTxLoop(connection, notifications)
 
 	select {
 	case <-connection.ctx.Done():
@@ -78,29 +82,6 @@ func TestWSTransmitFailureUnsubscribesConnection(t *testing.T) {
 	webserver.subsMtx.Unlock()
 	if subscribed {
 		t.Fatal("connection remains registered after transmit failure")
-	}
-}
-
-func TestSendWSMessageUnblocksWhenConnectionIsCanceled(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	connection := &wsConn{ctx: ctx, ctxCancel: cancel}
-	messages := make(chan wsTxMsg, 1)
-	messages <- wsTxMsg{Event: wsEventOngoingIncidentsUpdate}
-
-	result := make(chan bool, 1)
-	go func() {
-		result <- sendWSMessage(connection, messages, wsTxMsg{Event: wsEventOngoingIncidentsUpdate})
-	}()
-
-	// The queue is full, so cancellation must release the blocked producer.
-	cancel()
-	select {
-	case sent := <-result:
-		if sent {
-			t.Fatal("sendWSMessage reported sending after cancellation")
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("sendWSMessage remained blocked after cancellation")
 	}
 }
 

@@ -188,6 +188,8 @@ func (s *statusWebserver) broadcast(message statusWebsocketMessage) {
 		}
 		if !sendStatusWebsocketUpdate(client.updates, message) {
 			fmt.Println("status WebSocket update queue is full; disconnecting slow client")
+			// Close the connection immediately instead of draining its stale
+			// backlog. If the browser reconnects, it receives a fresh snapshot.
 			s.clientsMtx.Lock()
 			delete(s.clients, client)
 			s.clientsMtx.Unlock()
