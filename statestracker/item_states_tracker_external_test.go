@@ -56,6 +56,24 @@ func TestTrackerSortsSnapshotsAndKeepsIndependentItems(t *testing.T) {
 	)
 }
 
+func TestPublishedNotificationIsNotChangedByLaterUpdates(t *testing.T) {
+	tracker := statestracker.NewItemStatesTracker(statestracker.ItemStatesTrackerParams{Clock: clock.NewMock()})
+	key := salmon.ItemKey("probe")
+	first := tracker.FeedItems(items(item(key, salmon.ItemStateWarning, "first failure")))
+
+	tracker.FeedItems(items(item(key, salmon.ItemStateError, "failure changed")))
+
+	assertItem := func(name string, got *salmon.ItemWContext) {
+		t.Helper()
+		if got.State != salmon.ItemStateWarning || got.Comment != "first failure" {
+			t.Errorf("%s after later update = state %q, comment %q; want state %q, comment %q",
+				name, got.State, got.Comment, salmon.ItemStateWarning, "first failure")
+		}
+	}
+	assertItem("Total item", first.OngoingIncidents.Total[0])
+	assertItem("Added item", first.OngoingIncidents.Added[0])
+}
+
 func item(key salmon.ItemKey, state salmon.ItemState, comment string) *salmon.Item {
 	return &salmon.Item{Key: key, State: state, Comment: comment}
 }

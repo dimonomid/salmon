@@ -99,8 +99,13 @@ func (ist *ItemStatesTracker) FeedItems(newItems map[salmon.ItemKey]*salmon.Item
 
 func itemsMapToSortedSlice(m map[salmon.ItemKey]*salmon.ItemWContext) []*salmon.ItemWContext {
 	ret := make([]*salmon.ItemWContext, 0, len(m))
-	for _, key := range m {
-		ret = append(ret, key)
+	for _, item := range m {
+		// The tracker mutates its stored items when later observations update an
+		// incident. Notifications are consumed asynchronously, so publishing
+		// those stored pointers would let a later FeedItems call change an
+		// earlier notification while a messenger is reading it.
+		itemSnapshot := *item
+		ret = append(ret, &itemSnapshot)
 	}
 
 	sort.Slice(ret, func(i, j int) bool {
