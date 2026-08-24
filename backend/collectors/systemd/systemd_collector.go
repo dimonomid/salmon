@@ -65,7 +65,7 @@ func NewCollector(params CollectorParams) (*Collector, error) {
 
 func validateConfig(config Config) error {
 	for ruleIndex, rule := range config.UnitRules {
-		for conditionIndex, condition := range rule.Conds {
+		for conditionIndex, condition := range rule.Conditions {
 			if !salmon.IsItemStateValid(condition.Result) {
 				return fmt.Errorf("rule #%d condition #%d has invalid result %q", ruleIndex, conditionIndex, condition.Result)
 			}
@@ -206,7 +206,7 @@ func (c *Collector) getItemFromUnit(unit *Unit) *salmon.Item {
 			Key: c.itemKeyFromSystemdName(unit.Name),
 		}
 
-		for i, cond := range rule.Conds {
+		for i, cond := range rule.Conditions {
 			if cond.State != "" && cond.State != unit.State {
 				continue
 			}

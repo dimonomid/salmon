@@ -15,12 +15,12 @@ type ConfigUnitRule struct {
 	// Type, if not empty, makes the rule to only apply to the units of this type.
 	Type string `yaml:"type"`
 
-	// Conds is a slice of all conds to check. If no cond matched, a salmon.ItemStateError
-	// is assumed.
-	Conds []ConfigCond `yaml:"conds"`
+	// Conditions contains the conditions to check. If none matches, a
+	// salmon.ItemStateError is assumed.
+	Conditions []ConfigCondition `yaml:"conditions"`
 }
 
-type ConfigCond struct {
+type ConfigCondition struct {
 	// If State isn't empty, it's required for the condition to be true.
 	// Otherwise, it's ignored.
 	State UnitState `yaml:"state"`

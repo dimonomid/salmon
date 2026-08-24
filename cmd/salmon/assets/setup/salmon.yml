@@ -11,19 +11,19 @@ core:
 
           # To require one specific service to be active, add a rule like this:
           # - name: important.service
-          #   conds:
+          #   conditions:
           #     - {state: active, result: ok}
           #     - {result: error}
 
           # Another example: ignore every state of a service that is known to fail.
           - name: something-i-dont-care-about.service
-            conds:
+            conditions:
               - {result: ok}
 
           # Default rule for all remaining services. Ordinary lifecycle states
           # are OK; unexpected states such as failed are warnings.
           - type: service
-            conds:
+            conditions:
               - {state: active, result: ok}
               - {state: inactive, result: ok}
               - {state: activating, result: ok}
@@ -42,7 +42,7 @@ core:
           - -c
           - |
             test "$(df -Pk / | awk 'NR == 2 { print $4 }')" -ge 102400
-        conds:
+        conditions:
           - {exitCode: "0", result: ok}
           - {result: error}
 

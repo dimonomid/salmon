@@ -69,7 +69,7 @@ func validateConfig(config Config) error {
 	if config.PollIntervalWhenUnhealthy < 0 {
 		return fmt.Errorf("pollIntervalWhenUnhealthy must not be negative")
 	}
-	for i, condition := range config.Conds {
+	for i, condition := range config.Conditions {
 		if condition.ExitCode != "" {
 			if _, err := strconv.Atoi(condition.ExitCode); err != nil {
 				return fmt.Errorf("condition #%d has invalid exitCode %q", i, condition.ExitCode)
@@ -188,7 +188,7 @@ func (c *Collector) runCommand() *salmon.Item {
 
 	exitCodeStr := strconv.Itoa(cmd.ProcessState.ExitCode())
 
-	for i, cond := range c.params.Config.Conds {
+	for i, cond := range c.params.Config.Conditions {
 		if cond.ExitCode != "" && cond.ExitCode != exitCodeStr {
 			continue
 		}

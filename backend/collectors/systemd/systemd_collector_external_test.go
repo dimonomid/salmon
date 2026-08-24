@@ -27,16 +27,16 @@ func TestCollectorAppliesOrderedRulesAndReportsRemovedUnits(t *testing.T) {
 		Common: collectors.Params{ID: "services", UpdatesChan: updates},
 		Config: systemd.Config{UnitRules: []systemd.ConfigUnitRule{
 			{
-				Name:  "important.service",
-				Conds: []systemd.ConfigCond{{State: "active", Result: salmon.ItemStateOK}, {Result: salmon.ItemStateError}},
+				Name:       "important.service",
+				Conditions: []systemd.ConfigCondition{{State: "active", Result: salmon.ItemStateOK}, {Result: salmon.ItemStateError}},
 			},
 			{
-				Name:  "ignored.service",
-				Conds: []systemd.ConfigCond{{Result: salmon.ItemStateOK}},
+				Name:       "ignored.service",
+				Conditions: []systemd.ConfigCondition{{Result: salmon.ItemStateOK}},
 			},
 			{
-				Type:  "service",
-				Conds: []systemd.ConfigCond{{State: "active", Result: salmon.ItemStateOK}, {Result: salmon.ItemStateWarning}},
+				Type:       "service",
+				Conditions: []systemd.ConfigCondition{{State: "active", Result: salmon.ItemStateOK}, {Result: salmon.ItemStateWarning}},
 			},
 		}},
 		ProviderFactory: func(params systemd.ProviderParams) (systemd.Provider, error) {
@@ -101,7 +101,7 @@ func TestCollectorRejectsInvalidResultsBeforeStartingProvider(t *testing.T) {
 	_, err := systemd.NewCollector(systemd.CollectorParams{
 		Common: collectors.Params{ID: "services", UpdatesChan: make(chan *collectors.Update)},
 		Config: systemd.Config{UnitRules: []systemd.ConfigUnitRule{{
-			Type: "service", Conds: []systemd.ConfigCond{{Result: "banana"}},
+			Type: "service", Conditions: []systemd.ConfigCondition{{Result: "banana"}},
 		}}},
 		ProviderFactory: func(params systemd.ProviderParams) (systemd.Provider, error) {
 			providerCalled = true
@@ -137,7 +137,7 @@ func TestCollectorCloseCompletesWhileCoreOutputIsBlocked(t *testing.T) {
 	collector, err := systemd.NewCollector(systemd.CollectorParams{
 		Common: collectors.Params{ID: "services", UpdatesChan: coreUpdates},
 		Config: systemd.Config{UnitRules: []systemd.ConfigUnitRule{{
-			Type: "service", Conds: []systemd.ConfigCond{{Result: salmon.ItemStateError}},
+			Type: "service", Conditions: []systemd.ConfigCondition{{Result: salmon.ItemStateError}},
 		}}},
 		ProviderFactory: func(params systemd.ProviderParams) (systemd.Provider, error) {
 			provider = &controlledProvider{updates: params.UnitUpdatesChan, closed: make(chan struct{})}

@@ -15,7 +15,7 @@ func TestCollectorMapsCommandResultsToItems(t *testing.T) {
 		name        string
 		description string
 		command     []string
-		conditions  []execcollector.ConfigCond
+		conditions  []execcollector.ConfigCondition
 		wantState   salmon.ItemState
 		wantText    string
 	}{
@@ -23,7 +23,7 @@ func TestCollectorMapsCommandResultsToItems(t *testing.T) {
 			name:        "matching exit code",
 			description: "probe",
 			command:     []string{"sh", "-c", "exit 7"},
-			conditions: []execcollector.ConfigCond{
+			conditions: []execcollector.ConfigCondition{
 				{ExitCode: "0", Result: salmon.ItemStateOK},
 				{ExitCode: "7", Result: salmon.ItemStateWarning},
 			},
@@ -33,14 +33,14 @@ func TestCollectorMapsCommandResultsToItems(t *testing.T) {
 		{
 			name:       "unmatched exit code defaults to error",
 			command:    []string{"sh", "-c", "exit 9"},
-			conditions: []execcollector.ConfigCond{{ExitCode: "0", Result: salmon.ItemStateOK}},
+			conditions: []execcollector.ConfigCondition{{ExitCode: "0", Result: salmon.ItemStateOK}},
 			wantState:  salmon.ItemStateError,
 			wantText:   "did not find matching condition",
 		},
 		{
 			name:       "command start failure is an incident",
 			command:    []string{"/a/salmon-command-that-does-not-exist"},
-			conditions: []execcollector.ConfigCond{{Result: salmon.ItemStateOK}},
+			conditions: []execcollector.ConfigCondition{{Result: salmon.ItemStateOK}},
 			wantState:  salmon.ItemStateError,
 			wantText:   "failed to start command",
 		},
@@ -56,7 +56,7 @@ func TestCollectorMapsCommandResultsToItems(t *testing.T) {
 					Command:                   test.command,
 					PollInterval:              time.Hour,
 					PollIntervalWhenUnhealthy: time.Hour,
-					Conds:                     test.conditions,
+					Conditions:                test.conditions,
 				},
 			})
 			if err != nil {

@@ -20,12 +20,12 @@ type Config struct {
 
 	PollIntervalWhenUnhealthy time.Duration `yaml:"pollIntervalWhenUnhealthy"`
 
-	// Conds is a slice of all conds to check. If no cond matched, a salmon.ItemStateError
-	// is assumed.
-	Conds []ConfigCond `yaml:"conds"`
+	// Conditions contains the conditions to check. If none matches, a
+	// salmon.ItemStateError is assumed.
+	Conditions []ConfigCondition `yaml:"conditions"`
 }
 
-type ConfigCond struct {
+type ConfigCondition struct {
 	// If ExitCode isn't an empty string, it's interpreted as an int, and the process
 	// must exit with that code for the condition to be true.
 	// Otherwise, it's ignored.

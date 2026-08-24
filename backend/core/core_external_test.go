@@ -33,7 +33,7 @@ func TestCorePublishesCommandIncidentLifecycle(t *testing.T) {
 					Command:                   []string{"sh", "-c", `test "$(cat "$1")" = healthy`, "sh", probePath},
 					PollInterval:              10 * time.Millisecond,
 					PollIntervalWhenUnhealthy: 10 * time.Millisecond,
-					Conds: []exec.ConfigCond{
+					Conditions: []exec.ConfigCondition{
 						{ExitCode: "0", Result: salmon.ItemStateOK},
 						{Result: salmon.ItemStateError},
 					},
@@ -45,7 +45,7 @@ func TestCorePublishesCommandIncidentLifecycle(t *testing.T) {
 					Command:                   []string{"sh", "-c", "exit 8"},
 					PollInterval:              time.Hour,
 					PollIntervalWhenUnhealthy: time.Hour,
-					Conds:                     []exec.ConfigCond{{Result: salmon.ItemStateWarning}},
+					Conditions:                []exec.ConfigCondition{{Result: salmon.ItemStateWarning}},
 				},
 			},
 		},
@@ -77,7 +77,7 @@ func TestCorePublishesCommandIncidentLifecycle(t *testing.T) {
 }
 
 func TestCoreRejectsAmbiguousComponentConfiguration(t *testing.T) {
-	validExec := &exec.Config{Command: []string{"true"}, Conds: []exec.ConfigCond{{Result: salmon.ItemStateOK}}}
+	validExec := &exec.Config{Command: []string{"true"}, Conditions: []exec.ConfigCondition{{Result: salmon.ItemStateOK}}}
 	validSystemd := &systemd.Config{}
 	_, err := core.NewCore(core.Config{Collectors: []core.Collector{{
 		ID: "ambiguous", Exec: validExec, Systemd: validSystemd,
@@ -96,7 +96,7 @@ func TestCoreRejectsAmbiguousComponentConfiguration(t *testing.T) {
 
 func TestCoreRejectsDuplicateAndInvalidCollectorConfiguration(t *testing.T) {
 	validExec := func() *exec.Config {
-		return &exec.Config{Command: []string{"true"}, Conds: []exec.ConfigCond{{Result: salmon.ItemStateOK}}}
+		return &exec.Config{Command: []string{"true"}, Conditions: []exec.ConfigCondition{{Result: salmon.ItemStateOK}}}
 	}
 	tests := []struct {
 		name       string
@@ -121,8 +121,8 @@ func TestCoreRejectsDuplicateAndInvalidCollectorConfiguration(t *testing.T) {
 			collectors: []core.Collector{{
 				ID: "probe",
 				Exec: &exec.Config{
-					Command: []string{"true"},
-					Conds:   []exec.ConfigCond{{Result: "banana"}},
+					Command:    []string{"true"},
+					Conditions: []exec.ConfigCondition{{Result: "banana"}},
 				},
 			}},
 			want: "invalid result",
