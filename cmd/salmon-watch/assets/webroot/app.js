@@ -2,12 +2,12 @@ const connectionStatus = document.getElementById("connection-status");
 const themeToggle = document.getElementById("theme-toggle");
 const statusSummary = document.getElementById("status-summary");
 const serverSummary = document.getElementById("server-summary");
-const hosts = document.getElementById("hosts");
+const servers = document.getElementById("servers");
 const incidents = document.getElementById("incidents");
 const incidentSummary = document.getElementById("incident-summary");
 const snoozedSummary = document.getElementById("snoozed-summary");
 const snoozedIncidents = document.getElementById("snoozed-incidents");
-const hostDetailsVisibilityKey = "salmon-watch.hostDetailsVisible";
+const serverDetailsVisibilityKey = "salmon-watch.serverDetailsVisible";
 const incidentDetailsVisibilityKey = "salmon-watch.incidentDetailsVisible";
 const snoozedVisibilityKey = "salmon-watch.snoozedVisible";
 const themeKey = "salmon-watch.theme";
@@ -58,22 +58,22 @@ function saveVisibilityPreference(key, visible) {
   }
 }
 
-let hostDetailsVisible = visibilityPreference(hostDetailsVisibilityKey, true);
+let serverDetailsVisible = visibilityPreference(serverDetailsVisibilityKey, true);
 let incidentDetailsVisible = visibilityPreference(incidentDetailsVisibilityKey, true);
 
 function setSectionSummary(summary, text, visible) {
   summary.replaceChildren(document.createTextNode(`▪ ${text} ${visible ? "▼" : "▲"}`));
 }
 
-function formatChangeTime(changeTime) {
-  const date = new Date(changeTime);
+function formatIncidentStartedAt(incidentStartedAt) {
+  const date = new Date(incidentStartedAt);
   return Number.isNaN(date.getTime())
-    ? changeTime
-    : `${date.toLocaleString()} (${formatTimeAgo(changeTime)})`;
+    ? incidentStartedAt
+    : `${date.toLocaleString()} (${formatTimeAgo(incidentStartedAt)})`;
 }
 
-function formatTimeAgo(changeTime) {
-  const date = new Date(changeTime);
+function formatTimeAgo(incidentStartedAt) {
+  const date = new Date(incidentStartedAt);
   if (Number.isNaN(date.getTime())) {
     return "";
   }
@@ -119,7 +119,7 @@ function formatTimeUntil(snoozedUntil) {
   return `in ${days} day${days === 1 ? "" : "s"}`;
 }
 
-function formatHostTime(value) {
+function formatServerTime(value) {
   if (!value) {
     return "never";
   }
@@ -135,11 +135,11 @@ function formatSnoozedIncidentCount(count) {
   return `${count} snoozed ${count === 1 ? "incident" : "incidents"}`;
 }
 
-function renderHosts(items) {
+function renderServers(items) {
   items = items || [];
-  lastHostItems = items;
+  lastServerItems = items;
   const online = items.filter((item) => item.connected).length;
-  setSectionSummary(serverSummary, `${online}/${items.length} hosts are online`, hostDetailsVisible);
+  setSectionSummary(serverSummary, `${online}/${items.length} servers are online`, serverDetailsVisible);
   if (online === items.length) {
     serverSummary.className = "section-summary status-connected";
   } else if (online === 0) {
@@ -148,11 +148,11 @@ function renderHosts(items) {
     serverSummary.className = "section-summary status-warning";
   }
   serverSummary.hidden = items.length === 0;
-  hosts.hidden = !hostDetailsVisible || items.length === 0;
-  hosts.replaceChildren();
+  servers.hidden = !serverDetailsVisible || items.length === 0;
+  servers.replaceChildren();
 
   const table = document.createElement("table");
-  table.className = "host-status-table";
+  table.className = "server-status-table";
   const header = table.insertRow();
   for (const column of ["server", "connection", "last conn change", "last heartbeat"]) {
     const cell = document.createElement("th");
@@ -164,8 +164,8 @@ function renderHosts(items) {
     for (const [columnIndex, value] of [
       item.id,
       item.connected ? "online" : "offline",
-      formatHostTime(item.lastStatusChangeTime),
-      formatHostTime(item.lastHeartbeatTime),
+      formatServerTime(item.connectionChangedAt),
+      formatServerTime(item.lastHeartbeatTime),
     ].entries()) {
       const cell = row.insertCell();
       cell.textContent = value;
@@ -174,14 +174,14 @@ function renderHosts(items) {
       }
     }
   }
-  hosts.appendChild(table);
-  hosts.appendChild(document.createElement("hr"));
+  servers.appendChild(table);
+  servers.appendChild(document.createElement("hr"));
 }
 
 serverSummary.addEventListener("click", () => {
-  hostDetailsVisible = !hostDetailsVisible;
-  saveVisibilityPreference(hostDetailsVisibilityKey, hostDetailsVisible);
-  renderHosts(lastHostItems);
+  serverDetailsVisible = !serverDetailsVisible;
+  saveVisibilityPreference(serverDetailsVisibilityKey, serverDetailsVisible);
+  renderServers(lastServerItems);
 });
 
 function iconURL(item) {
@@ -201,7 +201,7 @@ function iconURL(item) {
 }
 
 let snoozedVisible = visibilityPreference(snoozedVisibilityKey);
-let lastHostItems = [];
+let lastServerItems = [];
 let lastAlertingItems = [];
 let lastSnoozedItems = [];
 
@@ -214,7 +214,7 @@ function renderIncidentList(items, container, isSnoozed) {
       ["key", item.key],
       ["state", item.state],
       ["details", item.details],
-      ["change time", formatChangeTime(item.changeTime)],
+      ["started at", formatIncidentStartedAt(item.incidentStartedAt)],
     ];
     if (isSnoozed) {
       fields.push(["snoozed until", `${new Date(item.snoozedUntil).toLocaleString()} (${formatTimeUntil(item.snoozedUntil)})`]);
@@ -360,7 +360,7 @@ function connect() {
 
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data);
-    renderHosts(message.hosts);
+    renderServers(message.servers);
     render(message.ongoingIncidents.alerting, message.ongoingIncidents.snoozed);
     statusSummary.hidden = false;
   };
@@ -370,7 +370,7 @@ function connect() {
     connectionStatus.className = "status-disconnected";
     serverSummary.replaceChildren();
     statusSummary.hidden = true;
-    hosts.hidden = true;
+    servers.hidden = true;
     window.setTimeout(connect, 1000);
   };
 

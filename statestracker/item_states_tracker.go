@@ -38,8 +38,7 @@ func (ist *ItemStatesTracker) FeedItems(newItems map[salmon.ItemKey]*salmon.Item
 			if _, exists := ist.itemsOK[item.Key]; !exists {
 				// Either it's a new item, or it transitioned from non-ok to ok.
 				iwc := &salmon.ItemWContext{
-					Item:       *item,
-					ChangeTime: ist.params.Clock.Now(),
+					Item: *item,
 				}
 				ist.itemsOK[item.Key] = iwc
 			}
@@ -54,8 +53,8 @@ func (ist *ItemStatesTracker) FeedItems(newItems map[salmon.ItemKey]*salmon.Item
 			if exItem, exists := ist.itemsNotOK[item.Key]; !exists {
 				// Either it's a new item, or it transitioned from ok to non-ok.
 				iwc := &salmon.ItemWContext{
-					Item:       *item,
-					ChangeTime: ist.params.Clock.Now(),
+					Item:              *item,
+					IncidentStartedAt: ist.params.Clock.Now(),
 				}
 				ist.itemsNotOK[item.Key] = iwc
 

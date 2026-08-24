@@ -15,12 +15,12 @@ func TestBoardPublishesLatestSnapshot(t *testing.T) {
 	}
 
 	want := []*salmon.ItemWContext{{
-		Item:       salmon.Item{Key: "disk.free", State: salmon.ItemStateError, Details: "full"},
-		ChangeTime: time.Unix(123, 0),
+		Item:              salmon.Item{Key: "disk.free", State: salmon.ItemStateError, Details: "full"},
+		IncidentStartedAt: time.Unix(123, 0),
 	}}
 	board.Set(want)
 	got := board.Get()
-	if len(got) != 1 || !got[0].Item.Equals(&want[0].Item) || !got[0].ChangeTime.Equal(want[0].ChangeTime) {
+	if len(got) != 1 || !got[0].Item.Equals(&want[0].Item) || !got[0].IncidentStartedAt.Equal(want[0].IncidentStartedAt) {
 		t.Fatalf("Get() = %#v, want %#v", got, want)
 	}
 }

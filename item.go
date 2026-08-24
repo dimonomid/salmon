@@ -33,9 +33,8 @@ func IsItemStateValid(state ItemState) bool {
 type ItemWContext struct {
 	Item `json:""`
 
-	// ChangeTime indicates when the item entered the ItemStateOK or
-	// non-ItemStateOK state.
-	ChangeTime time.Time `json:"changeTime"`
+	// IncidentStartedAt indicates when the current non-OK incident began.
+	IncidentStartedAt time.Time `json:"incidentStartedAt"`
 }
 
 func (item *Item) Equals(other *Item) bool {

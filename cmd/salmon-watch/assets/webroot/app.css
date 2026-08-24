@@ -67,12 +67,12 @@ textarea {
   font-family: inherit;
 }
 
-.host-status-table {
+.server-status-table {
   font-family: inherit;
 }
 
-.host-status-table th,
-.host-status-table td,
+.server-status-table th,
+.server-status-table td,
 .incident th,
 .incident td {
   padding: 0.2em 0.5em 0.2em var(--section-indent);

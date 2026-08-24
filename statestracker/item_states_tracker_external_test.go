@@ -23,15 +23,15 @@ func TestTrackerPublishesIncidentLifecycle(t *testing.T) {
 	addedAt := mockClock.Now()
 	added := tracker.FeedItems(items(item(key, salmon.ItemStateWarning, "failed")))
 	assertNotification(t, added, []string{string(key)}, []string{string(key)}, nil, nil, 0)
-	if got := added.OngoingIncidents.Total[0].ChangeTime; !got.Equal(addedAt) {
-		t.Fatalf("incident ChangeTime = %s, want %s", got, addedAt)
+	if got := added.OngoingIncidents.Total[0].IncidentStartedAt; !got.Equal(addedAt) {
+		t.Fatalf("incident IncidentStartedAt = %s, want %s", got, addedAt)
 	}
 
 	mockClock.Add(time.Minute)
 	updated := tracker.FeedItems(items(item(key, salmon.ItemStateError, "still failed")))
 	assertNotification(t, updated, []string{string(key)}, nil, nil, []string{string(key)}, 0)
-	if got := updated.OngoingIncidents.Total[0].ChangeTime; !got.Equal(addedAt) {
-		t.Fatalf("updated incident ChangeTime = %s, want original %s", got, addedAt)
+	if got := updated.OngoingIncidents.Total[0].IncidentStartedAt; !got.Equal(addedAt) {
+		t.Fatalf("updated incident IncidentStartedAt = %s, want original %s", got, addedAt)
 	}
 
 	if got := tracker.FeedItems(items(item(key, salmon.ItemStateError, "still failed"))); got != nil {

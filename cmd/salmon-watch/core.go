@@ -20,20 +20,20 @@ type salmonWatchCore struct {
 	notifications   notificator
 	onIconState     func(trayState)
 	// combiner owns all outbound Salmon connections and is closed with the core.
-	combiner        *wsclient.Combiner
-	hostStatusesMtx sync.RWMutex
-	hostStatuses    map[string]hostStatus
-	// hostIDs preserves the order of servers in the Salmon Watch configuration.
-	hostIDs []string
+	combiner          *wsclient.Combiner
+	serverStatusesMtx sync.RWMutex
+	serverStatuses    map[string]serverStatus
+	// serverIDs preserves the order of servers in the Salmon Watch configuration.
+	serverIDs []string
 }
 
-type hostStatus struct {
-	// ID identifies the configured Salmon host.
+type serverStatus struct {
+	// ID identifies the configured Salmon server.
 	ID string `json:"id"`
 	// Connected reports the latest connection state.
 	Connected bool `json:"connected"`
-	// LastStatusChangeTime is when the connection most recently changed state.
-	LastStatusChangeTime *time.Time `json:"lastStatusChangeTime,omitempty"`
+	// ConnectionChangedAt is when the connection most recently changed state.
+	ConnectionChangedAt *time.Time `json:"connectionChangedAt,omitempty"`
 	// LastHeartbeatTime is when the most recent heartbeat was received.
 	LastHeartbeatTime *time.Time `json:"lastHeartbeatTime,omitempty"`
 	initialized       bool       `json:"-"`
@@ -87,21 +87,21 @@ func newSalmonWatchCore(params salmonWatchCoreParams) (*salmonWatchCore, error) 
 	}
 
 	core := &salmonWatchCore{
-		incidentState: incidentState,
-		notifications: params.Notifications,
-		onIconState:   params.OnIconState,
-		hostStatuses:  make(map[string]hostStatus, len(params.Config.Servers)),
-		hostIDs:       make([]string, 0, len(params.Config.Servers)),
+		incidentState:  incidentState,
+		notifications:  params.Notifications,
+		onIconState:    params.OnIconState,
+		serverStatuses: make(map[string]serverStatus, len(params.Config.Servers)),
+		serverIDs:      make([]string, 0, len(params.Config.Servers)),
 	}
 	for _, server := range params.Config.Servers {
-		core.hostStatuses[server.ID] = hostStatus{ID: server.ID}
-		core.hostIDs = append(core.hostIDs, server.ID)
+		core.serverStatuses[server.ID] = serverStatus{ID: server.ID}
+		core.serverIDs = append(core.serverIDs, server.ID)
 	}
 	core.statusWebserver = newStatusWebserver(statusWebserverParams{
 		OnSnooze:   incidentState.Snooze,
 		OnUnsnooze: incidentState.Unsnooze,
 	})
-	core.publishHostStatuses()
+	core.publishServerStatuses()
 	incidentState.OnUpdate = core.onIncidentUpdate
 
 	core.combiner, err = wsclient.NewCombiner(wsclient.CombinerParams{
@@ -119,8 +119,8 @@ func newSalmonWatchCore(params salmonWatchCoreParams) (*salmonWatchCore, error) 
 }
 
 func (c *salmonWatchCore) onConnectionEvent(id string, event wsclient.ConnectionEvent) {
-	c.hostStatusesMtx.Lock()
-	status := c.hostStatuses[id]
+	c.serverStatusesMtx.Lock()
+	status := c.serverStatuses[id]
 	if event.EventKind == wsclient.EventKindHeartbeat {
 		now := event.Time
 		status.LastHeartbeatTime = &now
@@ -128,28 +128,28 @@ func (c *salmonWatchCore) onConnectionEvent(id string, event wsclient.Connection
 		now := event.Time
 		connected := event.EventKind == wsclient.EventKindConnected
 		if status.initialized && connected == status.Connected {
-			c.hostStatusesMtx.Unlock()
+			c.serverStatusesMtx.Unlock()
 			return
 		}
 		status.Connected = connected
 		status.initialized = true
-		status.LastStatusChangeTime = &now
+		status.ConnectionChangedAt = &now
 	}
-	c.hostStatuses[id] = status
-	c.hostStatusesMtx.Unlock()
-	c.publishHostStatuses()
+	c.serverStatuses[id] = status
+	c.serverStatusesMtx.Unlock()
+	c.publishServerStatuses()
 }
 
-func (c *salmonWatchCore) publishHostStatuses() {
-	c.hostStatusesMtx.RLock()
-	statuses := make([]hostStatus, 0, len(c.hostIDs))
-	// Iterate by configured ID rather than over hostStatuses: Go map iteration
+func (c *salmonWatchCore) publishServerStatuses() {
+	c.serverStatusesMtx.RLock()
+	statuses := make([]serverStatus, 0, len(c.serverIDs))
+	// Iterate by configured ID rather than over serverStatuses: Go map iteration
 	// order is deliberately unstable, while the status UI shows this order.
-	for _, id := range c.hostIDs {
-		statuses = append(statuses, c.hostStatuses[id])
+	for _, id := range c.serverIDs {
+		statuses = append(statuses, c.serverStatuses[id])
 	}
-	c.hostStatusesMtx.RUnlock()
-	c.statusWebserver.SetHostStatuses(statuses)
+	c.serverStatusesMtx.RUnlock()
+	c.statusWebserver.SetServerStatuses(statuses)
 }
 
 // Close stops Salmon Watch's workers and waits for them to exit.

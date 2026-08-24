@@ -44,17 +44,17 @@ func NewCollector(params CollectorParams) (*Collector, error) {
 		cancel:   cancel,
 	}
 
-	if c.params.Config.PollFreq == 0 {
-		c.params.Config.PollFreq = 1 * time.Minute
+	if c.params.Config.PollInterval == 0 {
+		c.params.Config.PollInterval = 1 * time.Minute
 	}
 
-	if c.params.Config.PollFreqWhenFailed == 0 {
-		c.params.Config.PollFreqWhenFailed = 5 * time.Second
+	if c.params.Config.PollIntervalWhenUnhealthy == 0 {
+		c.params.Config.PollIntervalWhenUnhealthy = 5 * time.Second
 	}
 
 	go c.run()
 
-	fmt.Printf("Collecting data using exec (%s), polling every %s\n", params.Common.ID, c.params.Config.PollFreq)
+	fmt.Printf("Collecting data using exec (%s), polling every %s\n", params.Common.ID, c.params.Config.PollInterval)
 
 	return c, nil
 }
@@ -63,11 +63,11 @@ func validateConfig(config Config) error {
 	if len(config.Command) == 0 || config.Command[0] == "" {
 		return fmt.Errorf("command must not be empty")
 	}
-	if config.PollFreq < 0 {
-		return fmt.Errorf("pollFreq must not be negative")
+	if config.PollInterval < 0 {
+		return fmt.Errorf("pollInterval must not be negative")
 	}
-	if config.PollFreqWhenFailed < 0 {
-		return fmt.Errorf("pollFreqWhenFailed must not be negative")
+	if config.PollIntervalWhenUnhealthy < 0 {
+		return fmt.Errorf("pollIntervalWhenUnhealthy must not be negative")
 	}
 	for i, condition := range config.Conds {
 		if condition.ExitCode != "" {
@@ -97,10 +97,10 @@ func (c *Collector) getItemKey(key string) salmon.ItemKey {
 func (c *Collector) run() {
 	defer close(c.torndown)
 
-	tickerNormal := time.NewTicker(c.params.Config.PollFreq)
-	tickerWhenFailed := time.NewTicker(c.params.Config.PollFreqWhenFailed)
+	tickerNormal := time.NewTicker(c.params.Config.PollInterval)
+	tickerWhenUnhealthy := time.NewTicker(c.params.Config.PollIntervalWhenUnhealthy)
 	defer tickerNormal.Stop()
-	defer tickerWhenFailed.Stop()
+	defer tickerWhenUnhealthy.Stop()
 
 	var lastItemResult *salmon.Item
 
@@ -131,7 +131,7 @@ func (c *Collector) run() {
 
 		ticker := tickerNormal
 		if lastItemResult.State != salmon.ItemStateOK {
-			ticker = tickerWhenFailed
+			ticker = tickerWhenUnhealthy
 		}
 
 		select {

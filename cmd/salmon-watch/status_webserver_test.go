@@ -101,9 +101,9 @@ func TestStatusBroadcastDisconnectsClientWhoseQueueIsFull(t *testing.T) {
 	}
 	status.clients[client] = struct{}{}
 	first := statusWebsocketMessage{}
-	first.Hosts = []hostStatus{{ID: "first"}}
+	first.Servers = []serverStatus{{ID: "first"}}
 	second := statusWebsocketMessage{}
-	second.Hosts = []hostStatus{{ID: "second"}}
+	second.Servers = []serverStatus{{ID: "second"}}
 	client.updates <- first
 	status.broadcast(second)
 
@@ -115,7 +115,7 @@ func TestStatusBroadcastDisconnectsClientWhoseQueueIsFull(t *testing.T) {
 	if _, exists := status.clients[client]; exists {
 		t.Fatal("client with a full update queue remains registered")
 	}
-	if got := <-client.updates; len(got.Hosts) != 1 || got.Hosts[0].ID != "first" {
+	if got := <-client.updates; len(got.Servers) != 1 || got.Servers[0].ID != "first" {
 		t.Fatalf("queued status update = %#v, want original update", got)
 	}
 }

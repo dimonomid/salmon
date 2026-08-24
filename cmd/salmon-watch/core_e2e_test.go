@@ -177,7 +177,7 @@ type statusMessage struct {
 		Alerting []salmon.ItemWContext `json:"alerting"`
 		Snoozed  []snoozedIncident     `json:"snoozed"`
 	} `json:"ongoingIncidents"`
-	Hosts []hostStatus `json:"hosts"`
+	Servers []serverStatus `json:"servers"`
 }
 
 func connectStatus(t *testing.T, serverURL string) *websocket.Conn {
@@ -229,14 +229,14 @@ func hasAlertingKey(message statusMessage, key string) bool {
 
 func item(key, details string) *salmon.ItemWContext {
 	return &salmon.ItemWContext{
-		Item:       salmon.Item{Key: salmon.ItemKey(key), State: salmon.ItemStateError, Details: details},
-		ChangeTime: time.Now(),
+		Item:              salmon.Item{Key: salmon.ItemKey(key), State: salmon.ItemStateError, Details: details},
+		IncidentStartedAt: time.Now(),
 	}
 }
 
 func TestCoreCombinesTwoSalmonServers(t *testing.T) {
-	// Model two independent Salmon hosts; Salmon Watch must combine their
-	// incidents and prefix each key with the configured host ID.
+	// Model two independent Salmon servers; Salmon Watch must combine their
+	// incidents and prefix each key with the configured server ID.
 	first := newMockSalmonServer(t)
 	second := newMockSalmonServer(t)
 	notifications := &recordingNotificator{}
@@ -263,15 +263,15 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 	second.waitConnected(t)
 	first.sendHeartbeat(t)
 	second.sendHeartbeat(t)
-	hostStatus := readStatusUntil(t, statusConn, func(message statusMessage) bool {
-		return len(message.Hosts) == 2 && message.Hosts[0].LastHeartbeatTime != nil && message.Hosts[1].LastHeartbeatTime != nil
+	serverStatus := readStatusUntil(t, statusConn, func(message statusMessage) bool {
+		return len(message.Servers) == 2 && message.Servers[0].LastHeartbeatTime != nil && message.Servers[1].LastHeartbeatTime != nil
 	})
-	if got, want := []string{hostStatus.Hosts[0].ID, hostStatus.Hosts[1].ID}, []string{"second", "first"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("host status order = %#v, want configuration order %#v", got, want)
+	if got, want := []string{serverStatus.Servers[0].ID, serverStatus.Servers[1].ID}, []string{"second", "first"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("server status order = %#v, want configuration order %#v", got, want)
 	}
 
-	// Both hosts report a newly added error. Each should produce a status update
-	// and one desktop notification, with the host prefix included in the key.
+	// Both servers report a newly added error. Each should produce a status update
+	// and one desktop notification, with the server prefix included in the key.
 	first.send(t, salmon.Notification{OngoingIncidents: salmon.OngoingIncidentsWDelta{
 		Total: []*salmon.ItemWContext{item("disk", "first")},
 		Added: []*salmon.ItemWContext{item("disk", "first")},
@@ -282,7 +282,7 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 	}})
 
 	// The two Salmon messages produce two Salmon Watch WebSocket updates. The
-	// second one must contain the combined incidents from both hosts.
+	// second one must contain the combined incidents from both servers.
 	message := readStatusUntil(t, statusConn, func(message statusMessage) bool {
 		return hasAlertingKey(message, "first.disk") && hasAlertingKey(message, "second.cpu")
 	})
@@ -293,8 +293,8 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 	if !keys["first.disk"] || !keys["second.cpu"] {
 		t.Fatalf("combined status missing incidents: %#v", keys)
 	}
-	if len(message.Hosts) != 2 || !message.Hosts[0].Connected || !message.Hosts[1].Connected {
-		t.Fatalf("unexpected host connection status: %#v", message.Hosts)
+	if len(message.Servers) != 2 || !message.Servers[0].Connected || !message.Servers[1].Connected {
+		t.Fatalf("unexpected server connection status: %#v", message.Servers)
 	}
 	// Notification order is intentionally not asserted because the two source
 	// WebSockets are concurrent.
@@ -351,7 +351,7 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 		t.Fatalf("incident recovery notification missing: %#v", gotTitles)
 	}
 
-	// Model one Salmon host going offline. Salmon Watch should expose the
+	// Model one Salmon server going offline. Salmon Watch should expose the
 	// connection failure as an internal incident and notify about it.
 	second.closeConnections()
 	message = readStatusUntil(t, statusConn, func(message statusMessage) bool {
@@ -377,7 +377,7 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 	}
 
 	// The client reconnects, clearing the internal connection incident while
-	// preserving the last known incidents from that host.
+	// preserving the last known incidents from that server.
 	second.waitConnected(t)
 	message = readStatusUntil(t, statusConn, func(message statusMessage) bool {
 		return !hasAlertingKey(message, "internal.connection.second")

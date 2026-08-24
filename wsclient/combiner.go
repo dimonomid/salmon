@@ -227,6 +227,6 @@ func getPrefixedItem(item *salmon.ItemWContext, prefix string) *salmon.ItemWCont
 			Details: item.Details,
 		},
 
-		ChangeTime: item.ChangeTime,
+		IncidentStartedAt: item.IncidentStartedAt,
 	}
 }

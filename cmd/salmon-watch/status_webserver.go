@@ -23,11 +23,11 @@ const statusWebsocketQueueSize = 64
 // statusWebserver transports already-classified incident snapshots to the
 // local status UI. Classification itself belongs to incidentState.
 type statusWebserver struct {
-	snapshotMtx  sync.RWMutex
-	snapshot     incidentSnapshot
-	hostStatuses []hostStatus
-	onSnooze     func(string, time.Duration) error
-	onUnsnooze   func(string) error
+	snapshotMtx    sync.RWMutex
+	snapshot       incidentSnapshot
+	serverStatuses []serverStatus
+	onSnooze       func(string, time.Duration) error
+	onUnsnooze     func(string) error
 
 	clientsMtx sync.Mutex
 	clients    map[*statusWebsocketClient]struct{}
@@ -77,7 +77,7 @@ type statusWebsocketMessage struct {
 		Alerting []salmon.ItemWContext `json:"alerting"`
 		Snoozed  []snoozedIncident     `json:"snoozed"`
 	} `json:"ongoingIncidents"`
-	Hosts []hostStatus `json:"hosts"`
+	Servers []serverStatus `json:"servers"`
 }
 
 func newStatusWebserver(params statusWebserverParams) *statusWebserver {
@@ -97,10 +97,10 @@ func (s *statusWebserver) SetOngoingIncidents(snapshot incidentSnapshot) {
 	s.broadcast(s.message())
 }
 
-// SetHostStatuses stores and publishes the latest Salmon connection metadata.
-func (s *statusWebserver) SetHostStatuses(statuses []hostStatus) {
+// SetServerStatuses stores and publishes the latest Salmon connection metadata.
+func (s *statusWebserver) SetServerStatuses(statuses []serverStatus) {
 	s.snapshotMtx.Lock()
-	s.hostStatuses = append([]hostStatus(nil), statuses...)
+	s.serverStatuses = append([]serverStatus(nil), statuses...)
 	s.snapshotMtx.Unlock()
 	s.broadcast(s.message())
 }
@@ -114,7 +114,7 @@ func (s *statusWebserver) message() statusWebsocketMessage {
 	message := statusWebsocketMessage{}
 	message.OngoingIncidents.Alerting = append([]salmon.ItemWContext(nil), s.snapshot.Alerting...)
 	message.OngoingIncidents.Snoozed = append([]snoozedIncident(nil), s.snapshot.Snoozed...)
-	message.Hosts = append([]hostStatus(nil), s.hostStatuses...)
+	message.Servers = append([]serverStatus(nil), s.serverStatuses...)
 	return message
 }
 

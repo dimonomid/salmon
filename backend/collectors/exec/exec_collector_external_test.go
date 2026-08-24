@@ -52,11 +52,11 @@ func TestCollectorMapsCommandResultsToItems(t *testing.T) {
 			collector, err := execcollector.NewCollector(execcollector.CollectorParams{
 				Common: collectors.Params{ID: "check", UpdatesChan: updates},
 				Config: execcollector.Config{
-					Description:        test.description,
-					Command:            test.command,
-					PollFreq:           time.Hour,
-					PollFreqWhenFailed: time.Hour,
-					Conds:              test.conditions,
+					Description:               test.description,
+					Command:                   test.command,
+					PollInterval:              time.Hour,
+					PollIntervalWhenUnhealthy: time.Hour,
+					Conds:                     test.conditions,
 				},
 			})
 			if err != nil {
@@ -90,9 +90,9 @@ func TestCollectorCloseCancelsAStuckCommand(t *testing.T) {
 	collector, err := execcollector.NewCollector(execcollector.CollectorParams{
 		Common: collectors.Params{ID: "check", UpdatesChan: updates},
 		Config: execcollector.Config{
-			Command:            []string{"sh", "-c", "sleep 30"},
-			PollFreq:           time.Hour,
-			PollFreqWhenFailed: time.Hour,
+			Command:                   []string{"sh", "-c", "sleep 30"},
+			PollInterval:              time.Hour,
+			PollIntervalWhenUnhealthy: time.Hour,
 		},
 	})
 	if err != nil {

@@ -29,10 +29,10 @@ func TestCorePublishesCommandIncidentLifecycle(t *testing.T) {
 			{
 				ID: "probe",
 				Exec: &exec.Config{
-					Description:        "probe must be healthy",
-					Command:            []string{"sh", "-c", `test "$(cat "$1")" = healthy`, "sh", probePath},
-					PollFreq:           10 * time.Millisecond,
-					PollFreqWhenFailed: 10 * time.Millisecond,
+					Description:               "probe must be healthy",
+					Command:                   []string{"sh", "-c", `test "$(cat "$1")" = healthy`, "sh", probePath},
+					PollInterval:              10 * time.Millisecond,
+					PollIntervalWhenUnhealthy: 10 * time.Millisecond,
 					Conds: []exec.ConfigCond{
 						{ExitCode: "0", Result: salmon.ItemStateOK},
 						{Result: salmon.ItemStateError},
@@ -42,10 +42,10 @@ func TestCorePublishesCommandIncidentLifecycle(t *testing.T) {
 			{
 				ID: "second-probe",
 				Exec: &exec.Config{
-					Command:            []string{"sh", "-c", "exit 8"},
-					PollFreq:           time.Hour,
-					PollFreqWhenFailed: time.Hour,
-					Conds:              []exec.ConfigCond{{Result: salmon.ItemStateWarning}},
+					Command:                   []string{"sh", "-c", "exit 8"},
+					PollInterval:              time.Hour,
+					PollIntervalWhenUnhealthy: time.Hour,
+					Conds:                     []exec.ConfigCond{{Result: salmon.ItemStateWarning}},
 				},
 			},
 		},
@@ -132,8 +132,8 @@ func TestCoreRejectsDuplicateAndInvalidCollectorConfiguration(t *testing.T) {
 			collectors: []core.Collector{{
 				ID: "probe",
 				Exec: &exec.Config{
-					Command:  []string{"true"},
-					PollFreq: -time.Second,
+					Command:      []string{"true"},
+					PollInterval: -time.Second,
 				},
 			}},
 			want: "must not be negative",

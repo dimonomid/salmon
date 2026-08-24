@@ -114,7 +114,7 @@ add one more entry to the `wsClient.servers` array, like that:
       addr: something.com:41990 # Replace something.com with the actual IP or hostname.
 ```
 
-And restart `salmon-watch`. Open its web UI and verify that the list of hosts
+And restart `salmon-watch`. Open its web UI and verify that the list of servers
 now includes your newly added remote server as well.
 
 ## Default config

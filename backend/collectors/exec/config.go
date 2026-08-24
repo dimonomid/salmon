@@ -15,10 +15,10 @@ type Config struct {
 	// arguments. Example: []string{"bash", "-c", "(( $(df --output=avail / | sed 1d) > 1000000 ))"}
 	Command []string `yaml:"command"`
 
-	// PollFreq is how often to run the command. Default: 1 minute.
-	PollFreq time.Duration `yaml:"pollFreq"`
+	// PollInterval is how often to run the command. Default: 1 minute.
+	PollInterval time.Duration `yaml:"pollInterval"`
 
-	PollFreqWhenFailed time.Duration `yaml:"pollFreqWhenFailed"`
+	PollIntervalWhenUnhealthy time.Duration `yaml:"pollIntervalWhenUnhealthy"`
 
 	// Conds is a slice of all conds to check. If no cond matched, a salmon.ItemStateError
 	// is assumed.
