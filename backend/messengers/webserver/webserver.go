@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"sync"
-	"time"
 
 	"github.com/dimonomid/salmon"
 	"github.com/dimonomid/salmon/backend/messengers"
@@ -42,6 +41,8 @@ type websocketSubscription struct {
 	ch   chan *salmon.Notification
 	conn *wsConn
 }
+
+const websocketSubscriptionQueueSize = 64
 
 func New(params Params) (*Webserver, error) {
 	if params.Config.ListenAddress == "" {
@@ -103,7 +104,15 @@ func (s *Webserver) run() {
 		}
 		s.subsMtx.Unlock()
 		for _, sub := range subscriptions {
-			sendNotificationToSubscriber(sub.id, sub.conn, sub.ch, notif)
+			select {
+			case <-sub.conn.ctx.Done():
+				continue
+			default:
+			}
+			if !sendNotificationToSubscriber(sub.ch, notif) {
+				fmt.Fprintf(os.Stderr, "WebSocket subscriber %d notification queue is full; disconnecting slow client\n", sub.id)
+				s.unsubscribe(sub.id)
+			}
 		}
 	}
 
@@ -112,22 +121,13 @@ func (s *Webserver) run() {
 	s.server.Close()
 }
 
-func sendNotificationToSubscriber(id int, conn *wsConn, ch chan<- *salmon.Notification, notif *salmon.Notification) bool {
+// sendNotificationToSubscriber attempts to enqueue notif without blocking.
+// It returns false when the subscriber queue cannot accept the notification.
+func sendNotificationToSubscriber(ch chan<- *salmon.Notification, notif *salmon.Notification) bool {
 	select {
 	case ch <- notif:
 		return true
-	case <-conn.ctx.Done():
-		return false
 	default:
-	}
-
-	started := time.Now()
-	fmt.Fprintf(os.Stderr, "non-blocking notification send to WebSocket subscriber %d did not complete; sending blocking\n", id)
-	select {
-	case ch <- notif:
-		fmt.Fprintf(os.Stderr, "blocking notification send to WebSocket subscriber %d completed after %s\n", id, time.Since(started))
-		return true
-	case <-conn.ctx.Done():
 		return false
 	}
 }
@@ -166,7 +166,7 @@ func (s *Webserver) subscribe(conn *wsConn) (subID int, ch chan *salmon.Notifica
 	subID = s.nextSubID
 	s.nextSubID++
 
-	ch = make(chan *salmon.Notification, 32)
+	ch = make(chan *salmon.Notification, websocketSubscriptionQueueSize)
 	s.subs[subID] = ch
 	s.wsConns[subID] = conn
 
@@ -191,7 +191,9 @@ func (s *Webserver) unsubscribe(subID int) {
 	s.subsMtx.Unlock()
 	if exists {
 		conn.ctxCancel()
-		_ = conn.conn.Close()
+		if conn.conn != nil {
+			_ = conn.conn.Close()
+		}
 	}
 }
 

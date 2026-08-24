@@ -18,6 +18,8 @@ import (
 
 const defPort = 41991
 
+const statusWebsocketQueueSize = 64
+
 // statusWebserver transports already-classified incident snapshots to the
 // local status UI. Classification itself belongs to incidentState.
 type statusWebserver struct {
@@ -64,7 +66,9 @@ type statusWebsocketClient struct {
 
 func (c *statusWebsocketClient) close() {
 	c.doneOnce.Do(func() { close(c.done) })
-	_ = c.conn.Close()
+	if c.conn != nil {
+		_ = c.conn.Close()
+	}
 }
 
 // statusWebsocketMessage is the local browser API payload.
@@ -165,8 +169,9 @@ func (s *statusWebserver) unsnooze(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// broadcast sends each snapshot to every connected client, in a blocking way
-// (although if we have to block, we also log a message).
+// broadcast sends each snapshot to every connected client. A client whose
+// queue is full is disconnected so it cannot delay updates to healthy clients;
+// reconnecting gives it a fresh snapshot.
 func (s *statusWebserver) broadcast(message statusWebsocketMessage) {
 	s.clientsMtx.Lock()
 	clients := make([]*statusWebsocketClient, 0, len(s.clients))
@@ -177,18 +182,28 @@ func (s *statusWebserver) broadcast(message statusWebsocketMessage) {
 
 	for _, client := range clients {
 		select {
-		case client.updates <- message:
 		case <-client.done:
 			continue
 		default:
-			started := time.Now()
-			fmt.Println("non-blocking status WebSocket update did not complete; sending blocking")
-			select {
-			case client.updates <- message:
-				fmt.Printf("blocking status WebSocket update completed after %s\n", time.Since(started))
-			case <-client.done:
-			}
 		}
+		if !sendStatusWebsocketUpdate(client.updates, message) {
+			fmt.Println("status WebSocket update queue is full; disconnecting slow client")
+			s.clientsMtx.Lock()
+			delete(s.clients, client)
+			s.clientsMtx.Unlock()
+			client.close()
+		}
+	}
+}
+
+// sendStatusWebsocketUpdate attempts to enqueue message without blocking. It
+// returns false when the client queue cannot accept the update.
+func sendStatusWebsocketUpdate(ch chan<- statusWebsocketMessage, message statusWebsocketMessage) bool {
+	select {
+	case ch <- message:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -204,7 +219,7 @@ func (s *statusWebserver) wsConnect(w http.ResponseWriter, r *http.Request) {
 
 	client := &statusWebsocketClient{
 		conn:    conn,
-		updates: make(chan statusWebsocketMessage, 32),
+		updates: make(chan statusWebsocketMessage, statusWebsocketQueueSize),
 		done:    make(chan struct{}),
 	}
 

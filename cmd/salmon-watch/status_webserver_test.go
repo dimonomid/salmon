@@ -93,7 +93,7 @@ func TestLocalStatusServerCloseRejectsConcurrentWebsockets(t *testing.T) {
 	}
 }
 
-func TestStatusBroadcastWaitsForClientCapacity(t *testing.T) {
+func TestStatusBroadcastDisconnectsClientWhoseQueueIsFull(t *testing.T) {
 	status := newStatusWebserver(statusWebserverParams{})
 	client := &statusWebsocketClient{
 		updates: make(chan statusWebsocketMessage, 1),
@@ -105,22 +105,24 @@ func TestStatusBroadcastWaitsForClientCapacity(t *testing.T) {
 	second := statusWebsocketMessage{}
 	second.Hosts = []hostStatus{{ID: "second"}}
 	client.updates <- first
-	delivered := make(chan struct{})
-	go func() {
-		status.broadcast(second)
-		close(delivered)
-	}()
+	status.broadcast(second)
 
-	if got := <-client.updates; len(got.Hosts) != 1 || got.Hosts[0].ID != "first" {
-		t.Fatalf("first status update = %#v", got)
-	}
 	select {
-	case <-delivered:
-	case <-time.After(3 * time.Second):
-		t.Fatal("blocking status update did not complete after capacity became available")
+	case <-client.done:
+	default:
+		t.Fatal("client with a full update queue was not closed")
 	}
-	if got := <-client.updates; len(got.Hosts) != 1 || got.Hosts[0].ID != "second" {
-		t.Fatalf("second status update = %#v", got)
+	if _, exists := status.clients[client]; exists {
+		t.Fatal("client with a full update queue remains registered")
+	}
+	if got := <-client.updates; len(got.Hosts) != 1 || got.Hosts[0].ID != "first" {
+		t.Fatalf("queued status update = %#v, want original update", got)
+	}
+}
+
+func TestStatusWebsocketQueueSize(t *testing.T) {
+	if statusWebsocketQueueSize != 64 {
+		t.Fatalf("status WebSocket queue size = %d, want 64", statusWebsocketQueueSize)
 	}
 }
 

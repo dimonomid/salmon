@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/dimonomid/salmon"
+	"github.com/dimonomid/salmon/backend/messengers"
 	"github.com/gorilla/websocket"
 )
 
@@ -103,52 +104,65 @@ func TestSendWSMessageUnblocksWhenConnectionIsCanceled(t *testing.T) {
 	}
 }
 
-func TestSendNotificationToSubscriberWaitsForCapacity(t *testing.T) {
+func TestWebsocketSubscriptionQueueSize(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	connection := &wsConn{ctx: ctx, ctxCancel: cancel}
-	first := &salmon.Notification{}
-	second := &salmon.Notification{}
-	notifications := make(chan *salmon.Notification, 1)
-	notifications <- first
-	result := make(chan bool, 1)
-	go func() {
-		result <- sendNotificationToSubscriber(7, connection, notifications, second)
-	}()
+	webserver := &Webserver{
+		subs:    make(map[int]chan *salmon.Notification),
+		wsConns: make(map[int]*wsConn),
+	}
 
-	if got := <-notifications; got != first {
-		t.Fatalf("first notification = %p, want %p", got, first)
+	_, notifications, ok := webserver.subscribe(connection)
+	if !ok {
+		t.Fatal("subscription was rejected")
 	}
-	select {
-	case sent := <-result:
-		if !sent {
-			t.Fatal("notification send was canceled")
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("blocking subscriber send did not complete after capacity became available")
-	}
-	if got := <-notifications; got != second {
-		t.Fatalf("second notification = %p, want %p", got, second)
+	if got := cap(notifications); got != 64 {
+		t.Fatalf("subscription queue capacity = %d, want 64", got)
 	}
 }
 
-func TestSendNotificationToSubscriberUnblocksWhenCanceled(t *testing.T) {
+func TestRunDisconnectsSubscriberWhoseQueueIsFull(t *testing.T) {
+	incoming := make(chan *salmon.Notification, 1)
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	connection := &wsConn{ctx: ctx, ctxCancel: cancel}
-	notifications := make(chan *salmon.Notification, 1)
-	notifications <- &salmon.Notification{}
-	result := make(chan bool, 1)
+	webserver := &Webserver{
+		params:  Params{Common: messengers.Params{NotificationsChan: incoming}},
+		server:  &http.Server{},
+		subs:    make(map[int]chan *salmon.Notification),
+		wsConns: make(map[int]*wsConn),
+	}
+	id, notifications, ok := webserver.subscribe(connection)
+	if !ok {
+		t.Fatal("subscription was rejected")
+	}
+	for i := 0; i < cap(notifications); i++ {
+		notifications <- &salmon.Notification{}
+	}
+	runDone := make(chan struct{})
 	go func() {
-		result <- sendNotificationToSubscriber(7, connection, notifications, &salmon.Notification{})
+		webserver.run()
+		close(runDone)
 	}()
+	incoming <- &salmon.Notification{}
 
-	cancel()
 	select {
-	case sent := <-result:
-		if sent {
-			t.Fatal("notification was reported sent after cancellation")
-		}
+	case <-connection.ctx.Done():
 	case <-time.After(3 * time.Second):
-		t.Fatal("blocking subscriber send did not unblock after cancellation")
+		t.Fatal("subscriber with a full notification queue was not canceled")
+	}
+	webserver.subsMtx.Lock()
+	_, subscribed := webserver.subs[id]
+	webserver.subsMtx.Unlock()
+	if subscribed {
+		t.Fatal("subscriber with a full notification queue remains registered")
+	}
+
+	close(incoming)
+	select {
+	case <-runDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("webserver run loop did not stop")
 	}
 }
