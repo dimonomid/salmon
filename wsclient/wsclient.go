@@ -117,13 +117,18 @@ mainLoop:
 		conn, _, err := websocket.DefaultDialer.Dial(ustr, nil)
 		if err != nil {
 			connError = err.Error()
-			c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindDisconnected, Time: time.Now()})
+			if !c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindDisconnected, Time: time.Now()}) {
+				return
+			}
 			fmt.Println("Connection error:", err)
 			continue mainLoop
 		}
 
 		fmt.Println("Connected")
-		c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindConnected, Time: time.Now()})
+		if !c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindConnected, Time: time.Now()}) {
+			_ = conn.Close()
+			return
+		}
 
 		connError = ""
 		select {
@@ -174,7 +179,9 @@ mainLoop:
 
 				if len(message) == 1 && message[0] == 0x00 {
 					// Heartbeat
-					c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindHeartbeat, Time: time.Now()})
+					if !c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindHeartbeat, Time: time.Now()}) {
+						return
+					}
 					fmt.Println(c.params.Config.ID, "heartbeat")
 					continue
 				}
@@ -246,13 +253,25 @@ func (c *WSClient) sendOngoingIncidents(notif *salmon.Notification) bool {
 	}
 }
 
-func (c *WSClient) sendConnectionEvent(event ConnectionEvent) {
+func (c *WSClient) sendConnectionEvent(event ConnectionEvent) bool {
 	if c.params.ConnectionEventCh == nil {
-		return
+		return true
 	}
 	select {
 	case c.params.ConnectionEventCh <- event:
+		return true
+	case <-c.interrupt:
+		return false
 	default:
-		fmt.Println("failed to send connection event: buffer full")
+	}
+
+	started := time.Now()
+	fmt.Printf("non-blocking %s connection event send for server %q did not complete; sending blocking\n", event.EventKind, c.params.Config.ID)
+	select {
+	case c.params.ConnectionEventCh <- event:
+		fmt.Printf("blocking %s connection event send for server %q completed after %s\n", event.EventKind, c.params.Config.ID, time.Since(started))
+		return true
+	case <-c.interrupt:
+		return false
 	}
 }
