@@ -213,7 +213,7 @@ function renderIncidentList(items, container, isSnoozed) {
     const fields = [
       ["key", item.key],
       ["state", item.state],
-      ["comment", item.comment],
+      ["details", item.details],
       ["change time", formatChangeTime(item.changeTime)],
     ];
     if (isSnoozed) {

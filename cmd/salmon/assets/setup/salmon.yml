@@ -36,7 +36,7 @@ core:
     # filesystem. Adjust the mount point and 100 MiB threshold for your host.
     - id: root-free-space
       exec:
-        comment: root filesystem must have at least 100 MiB free
+        description: root filesystem must have at least 100 MiB free
         command:
           - sh
           - -c

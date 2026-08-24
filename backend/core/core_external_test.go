@@ -29,7 +29,7 @@ func TestCorePublishesCommandIncidentLifecycle(t *testing.T) {
 			{
 				ID: "probe",
 				Exec: &exec.Config{
-					Comment:            "probe must be healthy",
+					Description:        "probe must be healthy",
 					Command:            []string{"sh", "-c", `test "$(cat "$1")" = healthy`, "sh", probePath},
 					PollFreq:           10 * time.Millisecond,
 					PollFreqWhenFailed: 10 * time.Millisecond,

@@ -213,14 +213,14 @@ func (c *Collector) getItemFromUnit(unit *Unit) *salmon.Item {
 
 			// Found the matching condition, so use its result
 			item.State = cond.Result
-			item.Comment = fmt.Sprintf("rule: {%s}, unit state: %s, applied condition #%d %+v", unitRuleFilterString(&rule), unit.State, i, cond)
+			item.Details = fmt.Sprintf("rule: {%s}, unit state: %s, applied condition #%d %+v", unitRuleFilterString(&rule), unit.State, i, cond)
 			break
 		}
 
 		if item.State == "" {
 			// By default, assume error
 			item.State = salmon.ItemStateError
-			item.Comment = fmt.Sprintf("rule: {%s}, unit state: %s, did not find matching condition", unitRuleFilterString(&rule), unit.State)
+			item.Details = fmt.Sprintf("rule: {%s}, unit state: %s, did not find matching condition", unitRuleFilterString(&rule), unit.State)
 		}
 
 		return item

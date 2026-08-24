@@ -179,7 +179,7 @@ func (c *Combiner) runWSClient(
 				connKey: &salmon.Item{
 					Key:     connKey,
 					State:   state,
-					Comment: err,
+					Details: err,
 				},
 			})
 			c.internalTrackerMtx.Unlock()
@@ -224,7 +224,7 @@ func getPrefixedItem(item *salmon.ItemWContext, prefix string) *salmon.ItemWCont
 		Item: salmon.Item{
 			Key:     salmon.ItemKey(prefix + "." + string(item.Key)),
 			State:   item.State,
-			Comment: item.Comment,
+			Details: item.Details,
 		},
 
 		ChangeTime: item.ChangeTime,

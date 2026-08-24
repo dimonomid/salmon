@@ -12,15 +12,17 @@ import (
 
 func TestCollectorMapsCommandResultsToItems(t *testing.T) {
 	tests := []struct {
-		name       string
-		command    []string
-		conditions []execcollector.ConfigCond
-		wantState  salmon.ItemState
-		wantText   string
+		name        string
+		description string
+		command     []string
+		conditions  []execcollector.ConfigCond
+		wantState   salmon.ItemState
+		wantText    string
 	}{
 		{
-			name:    "matching exit code",
-			command: []string{"sh", "-c", "exit 7"},
+			name:        "matching exit code",
+			description: "probe",
+			command:     []string{"sh", "-c", "exit 7"},
 			conditions: []execcollector.ConfigCond{
 				{ExitCode: "0", Result: salmon.ItemStateOK},
 				{ExitCode: "7", Result: salmon.ItemStateWarning},
@@ -50,7 +52,7 @@ func TestCollectorMapsCommandResultsToItems(t *testing.T) {
 			collector, err := execcollector.NewCollector(execcollector.CollectorParams{
 				Common: collectors.Params{ID: "check", UpdatesChan: updates},
 				Config: execcollector.Config{
-					Comment:            "probe",
+					Description:        test.description,
 					Command:            test.command,
 					PollFreq:           time.Hour,
 					PollFreqWhenFailed: time.Hour,
@@ -70,8 +72,14 @@ func TestCollectorMapsCommandResultsToItems(t *testing.T) {
 			if got.State != test.wantState {
 				t.Errorf("state = %q, want %q", got.State, test.wantState)
 			}
-			if !strings.Contains(got.Comment, test.wantText) {
-				t.Errorf("comment = %q, want it to contain %q", got.Comment, test.wantText)
+			if !strings.Contains(got.Details, test.wantText) {
+				t.Errorf("details = %q, want it to contain %q", got.Details, test.wantText)
+			}
+			if test.description != "" && !strings.HasPrefix(got.Details, test.description+": ") {
+				t.Errorf("details = %q, want description prefix %q", got.Details, test.description+": ")
+			}
+			if strings.HasPrefix(got.Details, ":") {
+				t.Errorf("details without description have a leading colon: %q", got.Details)
 			}
 		})
 	}

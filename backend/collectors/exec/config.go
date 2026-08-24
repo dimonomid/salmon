@@ -7,8 +7,9 @@ import (
 )
 
 type Config struct {
-	// Comment will be used to prefix all item comments.
-	Comment string `yaml:"comment"`
+	// Description explains what the check verifies. It prefixes the dynamic
+	// execution details published with the item.
+	Description string `yaml:"description"`
 
 	// Command is a slice of strings: first one is the command, all others will be
 	// arguments. Example: []string{"bash", "-c", "(( $(df --output=avail / | sed 1d) > 1000000 ))"}

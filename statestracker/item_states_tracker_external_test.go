@@ -65,17 +65,17 @@ func TestPublishedNotificationIsNotChangedByLaterUpdates(t *testing.T) {
 
 	assertItem := func(name string, got *salmon.ItemWContext) {
 		t.Helper()
-		if got.State != salmon.ItemStateWarning || got.Comment != "first failure" {
-			t.Errorf("%s after later update = state %q, comment %q; want state %q, comment %q",
-				name, got.State, got.Comment, salmon.ItemStateWarning, "first failure")
+		if got.State != salmon.ItemStateWarning || got.Details != "first failure" {
+			t.Errorf("%s after later update = state %q, details %q; want state %q, details %q",
+				name, got.State, got.Details, salmon.ItemStateWarning, "first failure")
 		}
 	}
 	assertItem("Total item", first.OngoingIncidents.Total[0])
 	assertItem("Added item", first.OngoingIncidents.Added[0])
 }
 
-func item(key salmon.ItemKey, state salmon.ItemState, comment string) *salmon.Item {
-	return &salmon.Item{Key: key, State: state, Comment: comment}
+func item(key salmon.ItemKey, state salmon.ItemState, details string) *salmon.Item {
+	return &salmon.Item{Key: key, State: state, Details: details}
 }
 
 func items(values ...*salmon.Item) map[salmon.ItemKey]*salmon.Item {

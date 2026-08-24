@@ -150,14 +150,15 @@ func (c *Collector) runCommand() *salmon.Item {
 	ret := &salmon.Item{
 		Key: c.getItemKey("exec_result"),
 
-		// State and Comment will be populated below
-		Comment: c.params.Config.Comment,
+		// State will be populated below. Details starts with the configured
+		// description and gains the dynamic execution result.
+		Details: c.params.Config.Description,
 	}
 
 	cmd := exec.CommandContext(c.ctx, c.params.Config.Command[0], c.params.Config.Command[1:]...)
 	if err := cmd.Start(); err != nil {
 		ret.State = salmon.ItemStateError
-		ret.Comment += ": " + errors.Annotatef(err, "failed to start command").Error()
+		ret.Details = appendDetails(ret.Details, errors.Annotatef(err, "failed to start command").Error())
 		return ret
 	}
 
@@ -168,7 +169,7 @@ func (c *Collector) runCommand() *salmon.Item {
 	if err != nil {
 		if c.ctx.Err() != nil {
 			ret.State = salmon.ItemStateError
-			ret.Comment += ": command was canceled: " + c.ctx.Err().Error()
+			ret.Details = appendDetails(ret.Details, "command was canceled: "+c.ctx.Err().Error())
 			return ret
 		}
 		// If the command ran normally but just returned a non-zero status code,
@@ -180,7 +181,7 @@ func (c *Collector) runCommand() *salmon.Item {
 			// Apparently the error is something else, like IO issues; so file it
 			// as an error.
 			ret.State = salmon.ItemStateError
-			ret.Comment += ": " + errors.Annotatef(err, "failed to run command").Error()
+			ret.Details = appendDetails(ret.Details, errors.Annotatef(err, "failed to run command").Error())
 			return ret
 		}
 	}
@@ -194,18 +195,25 @@ func (c *Collector) runCommand() *salmon.Item {
 
 		// Found the matching condition, so use its result
 		ret.State = cond.Result
-		ret.Comment += ": " + fmt.Sprintf(
+		ret.Details = appendDetails(ret.Details, fmt.Sprintf(
 			"exit code: %s, applied condition #%d %+v",
 			exitCodeStr, i, cond,
-		)
+		))
 		break
 	}
 
 	// If no condition matched, assume error
 	if ret.State == "" {
 		ret.State = salmon.ItemStateError
-		ret.Comment += ": " + fmt.Sprintf("exit code: %s, did not find matching condition", exitCodeStr)
+		ret.Details = appendDetails(ret.Details, fmt.Sprintf("exit code: %s, did not find matching condition", exitCodeStr))
 	}
 
 	return ret
+}
+
+func appendDetails(existing, additional string) string {
+	if existing == "" {
+		return additional
+	}
+	return existing + ": " + additional
 }

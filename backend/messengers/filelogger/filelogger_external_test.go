@@ -28,12 +28,12 @@ func TestLoggerWritesObservableIncidentTransitions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	incident := &salmon.ItemWContext{Item: salmon.Item{Key: "systemd.sync", State: salmon.ItemStateError, Comment: "failed"}}
+	incident := &salmon.ItemWContext{Item: salmon.Item{Key: "systemd.sync", State: salmon.ItemStateError, Details: "failed"}}
 	notifications <- &salmon.Notification{
 		Time: time.Date(2026, 8, 23, 12, 34, 56, 0, time.Local),
 		OngoingIncidents: salmon.OngoingIncidentsWDelta{
 			Added:   []*salmon.ItemWContext{incident},
-			Updated: []*salmon.ItemWContext{{Item: salmon.Item{Key: "disk.free", State: salmon.ItemStateWarning, Comment: "low"}}},
+			Updated: []*salmon.ItemWContext{{Item: salmon.Item{Key: "disk.free", State: salmon.ItemStateWarning, Details: "low"}}},
 			Removed: []*salmon.ItemWContext{{Item: salmon.Item{Key: "network.dns", State: salmon.ItemStateError}}},
 		},
 	}

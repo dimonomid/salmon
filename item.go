@@ -9,9 +9,9 @@ type Item struct {
 	// State is the current item's state.
 	State ItemState `json:"state"`
 
-	// Comment, if not empty, contains a human-readable clarification on why
-	// State is what it is.
-	Comment string `json:"comment"`
+	// Details, if not empty, contains a human-readable clarification of the
+	// item's current state.
+	Details string `json:"details"`
 }
 
 type ItemKey string
@@ -39,5 +39,5 @@ type ItemWContext struct {
 }
 
 func (item *Item) Equals(other *Item) bool {
-	return item.Key == other.Key && item.State == other.State && item.Comment == other.Comment
+	return item.Key == other.Key && item.State == other.State && item.Details == other.Details
 }

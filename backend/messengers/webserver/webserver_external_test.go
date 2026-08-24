@@ -247,6 +247,6 @@ func assertIncidentKeys(t *testing.T, incidents []*salmon.ItemWContext, keys ...
 	}
 }
 
-func incident(key salmon.ItemKey, state salmon.ItemState, comment string) *salmon.ItemWContext {
-	return &salmon.ItemWContext{Item: salmon.Item{Key: key, State: state, Comment: comment}, ChangeTime: time.Now()}
+func incident(key salmon.ItemKey, state salmon.ItemState, details string) *salmon.ItemWContext {
+	return &salmon.ItemWContext{Item: salmon.Item{Key: key, State: state, Details: details}, ChangeTime: time.Now()}
 }

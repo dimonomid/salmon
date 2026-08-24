@@ -189,7 +189,7 @@ func (c *salmonWatchCore) onNotification(notif *salmon.Notification) {
 			if c.incidentState.IsSnoozed(string(item.Key)) {
 				continue
 			}
-			c.notifications.Push(string(item.State)+": "+string(item.Key), item.Comment)
+			c.notifications.Push(string(item.State)+": "+string(item.Key), item.Details)
 		}
 		// Do not show desktop notifications for updates to existing incidents:
 		// volatile details (such as connection ports in an error) can change

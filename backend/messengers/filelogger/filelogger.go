@@ -72,11 +72,11 @@ func (fl *FileLogger) run() {
 		}
 
 		for _, item := range notif.OngoingIncidents.Added {
-			fmt.Fprintf(fl.f, "%s [ %s ] %s (%s)\n", nt, item.State, item.Key, item.Comment)
+			fmt.Fprintf(fl.f, "%s [ %s ] %s (%s)\n", nt, item.State, item.Key, item.Details)
 		}
 
 		for _, item := range notif.OngoingIncidents.Updated {
-			fmt.Fprintf(fl.f, "%s [ %s ][ updated ] %s (%s)\n", nt, item.State, item.Key, item.Comment)
+			fmt.Fprintf(fl.f, "%s [ %s ][ updated ] %s (%s)\n", nt, item.State, item.Key, item.Details)
 		}
 
 		// TODO: handle one-off incidents as well

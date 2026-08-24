@@ -227,9 +227,9 @@ func hasAlertingKey(message statusMessage, key string) bool {
 	return false
 }
 
-func item(key, comment string) *salmon.ItemWContext {
+func item(key, details string) *salmon.ItemWContext {
 	return &salmon.ItemWContext{
-		Item:       salmon.Item{Key: salmon.ItemKey(key), State: salmon.ItemStateError, Comment: comment},
+		Item:       salmon.Item{Key: salmon.ItemKey(key), State: salmon.ItemStateError, Details: details},
 		ChangeTime: time.Now(),
 	}
 }
@@ -311,7 +311,7 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 	}
 
 	// Model a volatile update to first.disk. The browser must receive the new
-	// comment, but desktop notifications remain suppressed for updates.
+	// details, but desktop notifications remain suppressed for updates.
 	updated := item("disk", "first changed")
 	first.send(t, salmon.Notification{OngoingIncidents: salmon.OngoingIncidentsWDelta{
 		Total:   []*salmon.ItemWContext{updated},
@@ -319,7 +319,7 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 	}})
 	message = readStatusUntil(t, statusConn, func(message statusMessage) bool {
 		for _, incident := range message.OngoingIncidents.Alerting {
-			if incident.Key == "first.disk" && incident.Comment == "first changed" {
+			if incident.Key == "first.disk" && incident.Details == "first changed" {
 				return true
 			}
 		}
@@ -327,7 +327,7 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 	})
 	foundUpdated := false
 	for _, incident := range message.OngoingIncidents.Alerting {
-		if incident.Key == "first.disk" && incident.Comment == "first changed" {
+		if incident.Key == "first.disk" && incident.Details == "first changed" {
 			foundUpdated = true
 		}
 	}

@@ -15,7 +15,7 @@ func TestBoardPublishesLatestSnapshot(t *testing.T) {
 	}
 
 	want := []*salmon.ItemWContext{{
-		Item:       salmon.Item{Key: "disk.free", State: salmon.ItemStateError, Comment: "full"},
+		Item:       salmon.Item{Key: "disk.free", State: salmon.ItemStateError, Details: "full"},
 		ChangeTime: time.Unix(123, 0),
 	}}
 	board.Set(want)
