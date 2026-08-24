@@ -25,6 +25,7 @@ type Core struct {
 
 	tracker *statestracker.ItemStatesTracker
 
+	shutdown  chan struct{}
 	torndown  chan struct{}
 	closeOnce sync.Once
 }
@@ -73,6 +74,7 @@ func NewCore(cfg Config, params Params) (*Core, error) {
 			Clock: params.Clock,
 		}),
 
+		shutdown: make(chan struct{}),
 		torndown: make(chan struct{}),
 	}
 
@@ -90,6 +92,11 @@ func (c *Core) close() {
 	for _, coll := range c.colls {
 		coll.Close()
 	}
+
+	// Release notification sends that are applying backpressure. Delivery is no
+	// longer useful once shutdown starts, and must not prevent the run goroutine
+	// from terminating.
+	close(c.shutdown)
 
 	// At this point we're sure that no more collectors will send any messages to
 	// the updCh, so we can close it and wait for the run goroutine to exit as
@@ -142,9 +149,7 @@ func (c *Core) run() {
 			// instead, but that's ok.
 			c.ib.Set(notif.OngoingIncidents.Total)
 
-			for _, mwCtx := range c.messengers {
-				sendMessengerNotification(mwCtx, notif)
-			}
+			sendMessengerNotifications(c.messengers, notif, c.shutdown)
 		} else {
 			//fmt.Printf("HEY incidents no-op update\n")
 		}
@@ -153,15 +158,43 @@ func (c *Core) run() {
 	close(c.torndown)
 }
 
-func sendMessengerNotification(mwCtx messengerWCtx, notif *salmon.Notification) {
+// sendMessengerNotifications delivers one notification to all messengers in
+// parallel, then waits for every delivery. This preserves notification order
+// without making a healthy messenger wait behind a slow one.
+func sendMessengerNotifications(messengers []messengerWCtx, notif *salmon.Notification, shutdown <-chan struct{}) {
+	var wg sync.WaitGroup
+	for _, mwCtx := range messengers {
+		wg.Add(1)
+		go func(mwCtx messengerWCtx) {
+			defer wg.Done()
+			sendMessengerNotification(mwCtx, notif, shutdown)
+		}(mwCtx)
+	}
+	wg.Wait()
+}
+
+func sendMessengerNotification(mwCtx messengerWCtx, notif *salmon.Notification, shutdown <-chan struct{}) bool {
+	select {
+	case <-shutdown:
+		return false
+	default:
+	}
+
 	select {
 	case mwCtx.notificationsChan <- notif:
-		return
+		return true
+	case <-shutdown:
+		return false
 	default:
 	}
 
 	started := time.Now()
 	fmt.Fprintf(os.Stderr, "non-blocking notification send to %s did not complete; sending blocking\n", mwCtx.messenger.String())
-	mwCtx.notificationsChan <- notif
-	fmt.Fprintf(os.Stderr, "blocking notification send to %s completed after %s\n", mwCtx.messenger.String(), time.Since(started))
+	select {
+	case mwCtx.notificationsChan <- notif:
+		fmt.Fprintf(os.Stderr, "blocking notification send to %s completed after %s\n", mwCtx.messenger.String(), time.Since(started))
+		return true
+	case <-shutdown:
+		return false
+	}
 }
