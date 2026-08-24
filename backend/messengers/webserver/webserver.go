@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/dimonomid/salmon"
 	"github.com/dimonomid/salmon/backend/messengers"
@@ -34,6 +35,12 @@ type Params struct {
 	Common messengers.Params
 
 	Config Config
+}
+
+type websocketSubscription struct {
+	id   int
+	ch   chan *salmon.Notification
+	conn *wsConn
 }
 
 func New(params Params) (*Webserver, error) {
@@ -90,22 +97,39 @@ func (s *Webserver) serve() {
 func (s *Webserver) run() {
 	for notif := range s.params.Common.NotificationsChan {
 		s.subsMtx.Lock()
-		for _, sub := range s.subs {
-			select {
-			case sub <- notif:
-				// All good
-			default:
-				fmt.Fprintf(os.Stderr, "failed to send notification to ws conn: buffer is full")
-				// TODO: better error handling
-			}
-
+		subscriptions := make([]websocketSubscription, 0, len(s.subs))
+		for id, ch := range s.subs {
+			subscriptions = append(subscriptions, websocketSubscription{id: id, ch: ch, conn: s.wsConns[id]})
 		}
 		s.subsMtx.Unlock()
+		for _, sub := range subscriptions {
+			sendNotificationToSubscriber(sub.id, sub.conn, sub.ch, notif)
+		}
 	}
 
 	// Input channel was closed, so teardown now
 	s.closeWebsocketConnections()
 	s.server.Close()
+}
+
+func sendNotificationToSubscriber(id int, conn *wsConn, ch chan<- *salmon.Notification, notif *salmon.Notification) bool {
+	select {
+	case ch <- notif:
+		return true
+	case <-conn.ctx.Done():
+		return false
+	default:
+	}
+
+	started := time.Now()
+	fmt.Fprintf(os.Stderr, "non-blocking notification send to WebSocket subscriber %d did not complete; sending blocking\n", id)
+	select {
+	case ch <- notif:
+		fmt.Fprintf(os.Stderr, "blocking notification send to WebSocket subscriber %d completed after %s\n", id, time.Since(started))
+		return true
+	case <-conn.ctx.Done():
+		return false
+	}
 }
 
 func (s *Webserver) createHandler() (http.Handler, error) {
@@ -153,16 +177,16 @@ func (s *Webserver) subscribe(conn *wsConn) (subID int, ch chan *salmon.Notifica
 // stops all work owned by that subscription. It is called both when an
 // individual connection's receive loop ends and when server shutdown closes
 // all remaining connections. It is safe to call more than once for the same
-// ID: only the call that removes the subscription closes its channel, cancels
-// its context, and closes its connection.
+// ID: only the call that removes the subscription cancels its context and
+// closes its connection. Subscription channels remain open because fan-out may
+// have snapshotted one immediately before unsubscription.
 func (s *Webserver) unsubscribe(subID int) {
 	s.subsMtx.Lock()
-	ch, exists := s.subs[subID]
+	_, exists := s.subs[subID]
 	conn := s.wsConns[subID]
 	if exists {
 		delete(s.subs, subID)
 		delete(s.wsConns, subID)
-		close(ch)
 	}
 	s.subsMtx.Unlock()
 	if exists {

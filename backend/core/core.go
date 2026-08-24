@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
+	"github.com/dimonomid/salmon"
 	"github.com/dimonomid/salmon/backend/collectors"
 	"github.com/dimonomid/salmon/backend/itemsboard"
 	"github.com/dimonomid/salmon/statestracker"
@@ -141,13 +143,7 @@ func (c *Core) run() {
 			c.ib.Set(notif.OngoingIncidents.Total)
 
 			for _, mwCtx := range c.messengers {
-				select {
-				case mwCtx.notificationsChan <- notif:
-					// All good
-				default:
-					fmt.Fprintf(os.Stderr, "failed to send notification to %s: buffer is full", mwCtx.messenger.String())
-					// TODO: better error handling
-				}
+				sendMessengerNotification(mwCtx, notif)
 			}
 		} else {
 			//fmt.Printf("HEY incidents no-op update\n")
@@ -155,4 +151,17 @@ func (c *Core) run() {
 	}
 
 	close(c.torndown)
+}
+
+func sendMessengerNotification(mwCtx messengerWCtx, notif *salmon.Notification) {
+	select {
+	case mwCtx.notificationsChan <- notif:
+		return
+	default:
+	}
+
+	started := time.Now()
+	fmt.Fprintf(os.Stderr, "non-blocking notification send to %s did not complete; sending blocking\n", mwCtx.messenger.String())
+	mwCtx.notificationsChan <- notif
+	fmt.Fprintf(os.Stderr, "blocking notification send to %s completed after %s\n", mwCtx.messenger.String(), time.Since(started))
 }

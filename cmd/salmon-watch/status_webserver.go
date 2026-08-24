@@ -181,9 +181,11 @@ func (s *statusWebserver) broadcast(message statusWebsocketMessage) {
 		case <-client.done:
 			continue
 		default:
-			fmt.Println("status websocket update queue is full; waiting for client")
+			started := time.Now()
+			fmt.Println("non-blocking status WebSocket update did not complete; sending blocking")
 			select {
 			case client.updates <- message:
+				fmt.Printf("blocking status WebSocket update completed after %s\n", time.Since(started))
 			case <-client.done:
 			}
 		}

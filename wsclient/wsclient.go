@@ -200,12 +200,8 @@ mainLoop:
 						return
 					}
 
-					select {
-					case c.params.OngoingIncidentsCh <- notif:
-						// All good
-					default:
-						// TODO: better error handling
-						fmt.Println("failed to send ongoing incidents update: buffer full")
+					if !c.sendOngoingIncidents(notif) {
+						return
 					}
 
 				}
@@ -227,6 +223,26 @@ mainLoop:
 				return
 			}
 		}
+	}
+}
+
+func (c *WSClient) sendOngoingIncidents(notif *salmon.Notification) bool {
+	select {
+	case c.params.OngoingIncidentsCh <- notif:
+		return true
+	case <-c.interrupt:
+		return false
+	default:
+	}
+
+	started := time.Now()
+	fmt.Printf("non-blocking incident send for server %q did not complete; sending blocking\n", c.params.Config.ID)
+	select {
+	case c.params.OngoingIncidentsCh <- notif:
+		fmt.Printf("blocking incident send for server %q completed after %s\n", c.params.Config.ID, time.Since(started))
+		return true
+	case <-c.interrupt:
+		return false
 	}
 }
 

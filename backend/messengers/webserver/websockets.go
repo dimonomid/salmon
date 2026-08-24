@@ -87,11 +87,16 @@ func (s *Webserver) notifHandleLoop(conn *wsConn, ch <-chan *salmon.Notification
 		return
 	}
 
-	for notif := range ch {
-		if !sendWSMessage(conn, txMsgs, wsTxMsg{
-			Event: wsEventOngoingIncidentsUpdate,
-			Data:  notif,
-		}) {
+	for {
+		select {
+		case notif := <-ch:
+			if !sendWSMessage(conn, txMsgs, wsTxMsg{
+				Event: wsEventOngoingIncidentsUpdate,
+				Data:  notif,
+			}) {
+				return
+			}
+		case <-conn.ctx.Done():
 			return
 		}
 	}

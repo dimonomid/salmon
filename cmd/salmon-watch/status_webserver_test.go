@@ -93,6 +93,37 @@ func TestLocalStatusServerCloseRejectsConcurrentWebsockets(t *testing.T) {
 	}
 }
 
+func TestStatusBroadcastWaitsForClientCapacity(t *testing.T) {
+	status := newStatusWebserver(statusWebserverParams{})
+	client := &statusWebsocketClient{
+		updates: make(chan statusWebsocketMessage, 1),
+		done:    make(chan struct{}),
+	}
+	status.clients[client] = struct{}{}
+	first := statusWebsocketMessage{}
+	first.Hosts = []hostStatus{{ID: "first"}}
+	second := statusWebsocketMessage{}
+	second.Hosts = []hostStatus{{ID: "second"}}
+	client.updates <- first
+	delivered := make(chan struct{})
+	go func() {
+		status.broadcast(second)
+		close(delivered)
+	}()
+
+	if got := <-client.updates; len(got.Hosts) != 1 || got.Hosts[0].ID != "first" {
+		t.Fatalf("first status update = %#v", got)
+	}
+	select {
+	case <-delivered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("blocking status update did not complete after capacity became available")
+	}
+	if got := <-client.updates; len(got.Hosts) != 1 || got.Hosts[0].ID != "second" {
+		t.Fatalf("second status update = %#v", got)
+	}
+}
+
 func startLocalStatusServer(t *testing.T) (*localStatusServer, <-chan error) {
 	t.Helper()
 	server := setupWebserver(newStatusWebserver(statusWebserverParams{}))

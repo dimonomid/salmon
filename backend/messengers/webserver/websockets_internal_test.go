@@ -102,3 +102,53 @@ func TestSendWSMessageUnblocksWhenConnectionIsCanceled(t *testing.T) {
 		t.Fatal("sendWSMessage remained blocked after cancellation")
 	}
 }
+
+func TestSendNotificationToSubscriberWaitsForCapacity(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	connection := &wsConn{ctx: ctx, ctxCancel: cancel}
+	first := &salmon.Notification{}
+	second := &salmon.Notification{}
+	notifications := make(chan *salmon.Notification, 1)
+	notifications <- first
+	result := make(chan bool, 1)
+	go func() {
+		result <- sendNotificationToSubscriber(7, connection, notifications, second)
+	}()
+
+	if got := <-notifications; got != first {
+		t.Fatalf("first notification = %p, want %p", got, first)
+	}
+	select {
+	case sent := <-result:
+		if !sent {
+			t.Fatal("notification send was canceled")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("blocking subscriber send did not complete after capacity became available")
+	}
+	if got := <-notifications; got != second {
+		t.Fatalf("second notification = %p, want %p", got, second)
+	}
+}
+
+func TestSendNotificationToSubscriberUnblocksWhenCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	connection := &wsConn{ctx: ctx, ctxCancel: cancel}
+	notifications := make(chan *salmon.Notification, 1)
+	notifications <- &salmon.Notification{}
+	result := make(chan bool, 1)
+	go func() {
+		result <- sendNotificationToSubscriber(7, connection, notifications, &salmon.Notification{})
+	}()
+
+	cancel()
+	select {
+	case sent := <-result:
+		if sent {
+			t.Fatal("notification was reported sent after cancellation")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("blocking subscriber send did not unblock after cancellation")
+	}
+}
