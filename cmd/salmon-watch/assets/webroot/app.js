@@ -124,7 +124,25 @@ function formatServerTime(value) {
     return "never";
   }
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  const pad = (number) => String(number).padStart(2, "0");
+  const time = `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  const now = new Date();
+  const isToday = date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+  if (isToday) {
+    return time;
+  }
+
+  const dateOptions = {month: "short", day: "numeric"};
+  if (date.getFullYear() !== now.getFullYear()) {
+    dateOptions.year = "numeric";
+  }
+  return `${date.toLocaleDateString(undefined, dateOptions)}, ${time}`;
 }
 
 function formatIncidentCount(count) {
