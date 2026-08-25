@@ -154,7 +154,7 @@ function renderServers(items) {
   const table = document.createElement("table");
   table.className = "server-status-table";
   const header = table.insertRow();
-  for (const column of ["server", "connection", "last conn change", "last heartbeat"]) {
+  for (const column of ["server", "connection", "last heartbeat"]) {
     const cell = document.createElement("th");
     cell.textContent = column;
     header.appendChild(cell);
@@ -164,7 +164,6 @@ function renderServers(items) {
     for (const [columnIndex, value] of [
       item.id,
       item.connected ? "online" : "offline",
-      formatServerTime(item.connectionChangedAt),
       formatServerTime(item.lastHeartbeatTime),
     ].entries()) {
       const cell = row.insertCell();
