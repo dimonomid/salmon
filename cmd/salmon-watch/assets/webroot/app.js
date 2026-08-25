@@ -152,27 +152,17 @@ function formatRelativeTime(value, now = new Date()) {
 
   const elapsedMilliseconds = now.getTime() - date.getTime();
   const future = elapsedMilliseconds < 0;
-  let seconds = future
+  const seconds = future
     ? Math.ceil(-elapsedMilliseconds / 1000)
     : Math.floor(elapsedMilliseconds / 1000);
-  const parts = [];
-  const days = Math.floor(seconds / 86400);
-  if (days > 0) {
-    parts.push(`${days}d`);
-    seconds %= 86400;
+  let duration;
+  if (seconds < 15) {
+    duration = "<15s";
+  } else if (seconds < 60) {
+    duration = `${Math.floor(seconds / 15) * 15}s`;
+  } else {
+    duration = `${Math.floor(seconds / 60)}m`;
   }
-  const hours = Math.floor(seconds / 3600);
-  if (hours > 0) {
-    parts.push(`${hours}h`);
-    seconds %= 3600;
-  }
-  const minutes = Math.floor(seconds / 60);
-  if (minutes > 0) {
-    parts.push(`${minutes}m`);
-    seconds %= 60;
-  }
-  parts.push(`${seconds}s`);
-  const duration = parts.join(" ");
   return future ? `in ${duration}` : `${duration} ago`;
 }
 
@@ -182,21 +172,37 @@ function formatLiveTimestamp(value, now = new Date()) {
   return relative === "" ? absolute : `${absolute} (${relative})`;
 }
 
-function createLiveTimestamp(value) {
+function updateLiveTimestamp(element, now = new Date()) {
+  const value = element.dataset.timestamp;
+  element.textContent = formatLiveTimestamp(value, now);
+
+  if (element.classList.contains("server-heartbeat")) {
+    const date = new Date(value);
+    const age = now.getTime() - date.getTime();
+    const validPastTimestamp = !Number.isNaN(age) && age >= 0;
+    element.classList.toggle("status-warning", validPastTimestamp && age >= 15000 && age < 30000);
+    element.classList.toggle("status-disconnected", validPastTimestamp && age >= 30000);
+  }
+}
+
+function createLiveTimestamp(value, className = "") {
   const element = document.createElement("time");
   element.className = "live-timestamp";
+  if (className) {
+    element.classList.add(className);
+  }
   element.dataset.timestamp = value || "";
   if (value && !Number.isNaN(new Date(value).getTime())) {
     element.dateTime = value;
   }
-  element.textContent = formatLiveTimestamp(value);
+  updateLiveTimestamp(element);
   return element;
 }
 
 function updateLiveTimestamps() {
   const now = new Date();
   for (const element of document.querySelectorAll(".live-timestamp")) {
-    element.textContent = formatLiveTimestamp(element.dataset.timestamp, now);
+    updateLiveTimestamp(element, now);
   }
 }
 
@@ -243,7 +249,7 @@ function renderServers(items) {
     ].entries()) {
       const cell = row.insertCell();
       if (columnIndex === 2) {
-        cell.appendChild(createLiveTimestamp(value));
+        cell.appendChild(createLiveTimestamp(value, "server-heartbeat"));
       } else {
         cell.textContent = value;
       }
