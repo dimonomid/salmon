@@ -9,14 +9,16 @@ core:
           # Rules are evaluated in order, so specific rules must come before
           # the general rule at the end of this list.
 
-          # To require one specific service to be active, add a rule like this:
-          # - name: important.service
+          # To require specific services to be active, add a rule like this:
+          # - names:
+          #     - important.service
+          #     - another-important.service
           #   conditions:
           #     - {state: active, result: ok}
           #     - {result: error}
 
           # Another example: ignore every state of a service that is known to fail.
-          - name: something-i-dont-care-about.service
+          - names: [something-i-dont-care-about.service]
             conditions:
               - {result: ok}
 

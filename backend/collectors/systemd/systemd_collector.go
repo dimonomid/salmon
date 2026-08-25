@@ -65,6 +65,16 @@ func NewCollector(params CollectorParams) (*Collector, error) {
 
 func validateConfig(config Config) error {
 	for ruleIndex, rule := range config.UnitRules {
+		seenNames := make(map[string]struct{}, len(rule.Names))
+		for nameIndex, name := range rule.Names {
+			if name == "" {
+				return fmt.Errorf("rule #%d name #%d must not be empty", ruleIndex, nameIndex)
+			}
+			if _, exists := seenNames[name]; exists {
+				return fmt.Errorf("rule #%d contains duplicate name %q", ruleIndex, name)
+			}
+			seenNames[name] = struct{}{}
+		}
 		for conditionIndex, condition := range rule.Conditions {
 			if !salmon.IsItemStateValid(condition.Result) {
 				return fmt.Errorf("rule #%d condition #%d has invalid result %q", ruleIndex, conditionIndex, condition.Result)
@@ -118,28 +128,24 @@ func (c *Collector) run(providerUpdCh chan *UnitUpdate) {
 			Items: make(map[salmon.ItemKey]*salmon.Item, len(sysUpd.Units)),
 		}
 
-		// On the first update, also go over the config rules, and for those which are
-		// about some specific unit, make sure that it's present in the sysUpd.Units
-		// (if it's not actually present from the provider, create a fake one, with
-		// the state UnitStateNotSentBySystemd)
+		// On the first update, ensure every explicitly named unit is represented.
+		// Missing units get a synthetic not-sent-by-systemd state.
 		if firstUpdate {
+			if sysUpd.Units == nil {
+				sysUpd.Units = make(map[string]*Unit)
+			}
 			for _, rule := range c.params.Config.UnitRules {
-				// If the rule isn't about a specific unit, we can't make use of it here.
-				if rule.Name == "" {
-					continue
-				}
+				for _, name := range rule.Names {
+					if _, exists := sysUpd.Units[name]; exists {
+						continue
+					}
 
-				// If the unit is present in the actual update from systemd, nothing to do
-				if _, ok := sysUpd.Units[rule.Name]; ok {
-					continue
-				}
-
-				// The unit is not present in the actual update from systemd, so let's
-				// add the fake one.
-
-				sysUpd.Units[rule.Name] = &Unit{
-					Name:  rule.Name,
-					State: UnitStateNotSentBySystemd,
+					// The unit is not present in the actual update from systemd, so let's
+					// add the synthetic one.
+					sysUpd.Units[name] = &Unit{
+						Name:  name,
+						State: UnitStateNotSentBySystemd,
+					}
 				}
 			}
 
@@ -192,7 +198,7 @@ func (c *Collector) itemKeyFromSystemdName(name string) salmon.ItemKey {
 
 func (c *Collector) getItemFromUnit(unit *Unit) *salmon.Item {
 	for _, rule := range c.params.Config.UnitRules {
-		if rule.Name != "" && rule.Name != unit.Name {
+		if len(rule.Names) > 0 && !containsString(rule.Names, unit.Name) {
 			continue
 		}
 
@@ -231,15 +237,25 @@ func (c *Collector) getItemFromUnit(unit *Unit) *salmon.Item {
 	return nil
 }
 
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func unitRuleFilterString(rule *ConfigUnitRule) string {
 	var sb strings.Builder
 
-	if rule.Name != "" {
+	if len(rule.Names) > 0 {
 		if sb.Len() > 0 {
 			sb.WriteString(",")
 		}
-		sb.WriteString("name=")
-		sb.WriteString(rule.Name)
+		sb.WriteString("names=[")
+		sb.WriteString(strings.Join(rule.Names, ","))
+		sb.WriteString("]")
 	}
 
 	if rule.Type != "" {

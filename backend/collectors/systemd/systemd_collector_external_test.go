@@ -27,11 +27,11 @@ func TestCollectorAppliesOrderedRulesAndReportsRemovedUnits(t *testing.T) {
 		Common: collectors.Params{ID: "services", UpdatesChan: updates},
 		Config: systemd.Config{UnitRules: []systemd.ConfigUnitRule{
 			{
-				Name:       "important.service",
+				Names:      []string{"important.service", "another-important.service"},
 				Conditions: []systemd.ConfigCondition{{State: "active", Result: salmon.ItemStateOK}, {Result: salmon.ItemStateError}},
 			},
 			{
-				Name:       "ignored.service",
+				Names:      []string{"ignored.service"},
 				Conditions: []systemd.ConfigCondition{{Result: salmon.ItemStateOK}},
 			},
 			{
@@ -49,14 +49,16 @@ func TestCollectorAppliesOrderedRulesAndReportsRemovedUnits(t *testing.T) {
 	}
 
 	provider.updates <- &systemd.UnitUpdate{Units: map[string]*systemd.Unit{
-		"failed.service": {Name: "failed.service", State: "failed"},
-		"active.service": {Name: "active.service", State: "active"},
-		"socket.socket":  {Name: "socket.socket", State: "failed"},
+		"failed.service":            {Name: "failed.service", State: "failed"},
+		"active.service":            {Name: "active.service", State: "active"},
+		"another-important.service": {Name: "another-important.service", State: "active"},
+		"socket.socket":             {Name: "socket.socket", State: "failed"},
 	}}
 	first := receiveSystemdUpdate(t, updates)
 	assertSystemdItem(t, first, "services.failed.service", salmon.ItemStateWarning)
 	assertSystemdItem(t, first, "services.active.service", salmon.ItemStateOK)
 	assertSystemdItem(t, first, "services.important.service", salmon.ItemStateError)
+	assertSystemdItem(t, first, "services.another-important.service", salmon.ItemStateOK)
 	assertSystemdItem(t, first, "services.ignored.service", salmon.ItemStateOK)
 	if _, exists := first.Items["services.socket.socket"]; exists {
 		t.Error("unmatched socket unit was published")
@@ -113,6 +115,39 @@ func TestCollectorRejectsInvalidResultsBeforeStartingProvider(t *testing.T) {
 	}
 	if providerCalled {
 		t.Fatal("provider was started before configuration validation")
+	}
+}
+
+func TestCollectorRejectsInvalidNamesBeforeStartingProvider(t *testing.T) {
+	tests := []struct {
+		name  string
+		names []string
+	}{
+		{name: "empty", names: []string{""}},
+		{name: "duplicate", names: []string{"same.service", "same.service"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			providerCalled := false
+			_, err := systemd.NewCollector(systemd.CollectorParams{
+				Common: collectors.Params{ID: "services", UpdatesChan: make(chan *collectors.Update)},
+				Config: systemd.Config{UnitRules: []systemd.ConfigUnitRule{{
+					Names:      test.names,
+					Conditions: []systemd.ConfigCondition{{Result: salmon.ItemStateOK}},
+				}}},
+				ProviderFactory: func(params systemd.ProviderParams) (systemd.Provider, error) {
+					providerCalled = true
+					return nil, nil
+				},
+			})
+			if err == nil {
+				t.Fatal("invalid names were accepted")
+			}
+			if providerCalled {
+				t.Fatal("provider was started before configuration validation")
+			}
+		})
 	}
 }
 

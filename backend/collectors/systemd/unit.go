@@ -7,6 +7,8 @@ package systemd
 // e.g. if the unit was deleted.
 type UnitState string
 
+// UnitStateNotSentBySystemd indicates that a unit explicitly listed in a
+// rule's Names was absent from systemd's update, for example after deletion.
 const UnitStateNotSentBySystemd UnitState = "not-sent-by-systemd"
 
 type Unit struct {

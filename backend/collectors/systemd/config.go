@@ -9,8 +9,9 @@ type Config struct {
 }
 
 type ConfigUnitRule struct {
-	// Name is the unit name, e.g. "gpg-agent.service"
-	Name string `yaml:"name"`
+	// Names, when non-empty, limits the rule to these exact unit names, such as
+	// "gpg-agent.service".
+	Names []string `yaml:"names"`
 
 	// Type, if not empty, makes the rule to only apply to the units of this type.
 	Type string `yaml:"type"`

@@ -120,3 +120,28 @@ func TestLoadConfigRejectsUnknownFields(t *testing.T) {
 		t.Fatalf("loadConfig error = %v, want unknown-field error", err)
 	}
 }
+
+func TestLoadConfigUsesSystemdRuleNames(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "salmon.yml")
+	data := []byte(`core:
+  collectors:
+    - id: services
+      systemd:
+        unitRules:
+          - names: [one.service, two.service]
+            conditions:
+              - {result: ok}
+`)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := cfg.Core.Collectors[0].Systemd.UnitRules[0].Names
+	if strings.Join(got, ",") != "one.service,two.service" {
+		t.Fatalf("rule names = %#v", got)
+	}
+}
