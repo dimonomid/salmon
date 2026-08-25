@@ -119,7 +119,7 @@ function formatTimeUntil(snoozedUntil) {
   return `in ${days} day${days === 1 ? "" : "s"}`;
 }
 
-function formatServerTime(value) {
+function formatServerTime(value, now = new Date()) {
   if (!value) {
     return "never";
   }
@@ -130,7 +130,6 @@ function formatServerTime(value) {
 
   const pad = (number) => String(number).padStart(2, "0");
   const time = `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-  const now = new Date();
   const isToday = date.getFullYear() === now.getFullYear()
     && date.getMonth() === now.getMonth()
     && date.getDate() === now.getDate();
@@ -144,6 +143,64 @@ function formatServerTime(value) {
   }
   return `${date.toLocaleDateString(undefined, dateOptions)}, ${time}`;
 }
+
+function formatRelativeTime(value, now = new Date()) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const elapsedMilliseconds = now.getTime() - date.getTime();
+  const future = elapsedMilliseconds < 0;
+  let seconds = future
+    ? Math.ceil(-elapsedMilliseconds / 1000)
+    : Math.floor(elapsedMilliseconds / 1000);
+  const parts = [];
+  const days = Math.floor(seconds / 86400);
+  if (days > 0) {
+    parts.push(`${days}d`);
+    seconds %= 86400;
+  }
+  const hours = Math.floor(seconds / 3600);
+  if (hours > 0) {
+    parts.push(`${hours}h`);
+    seconds %= 3600;
+  }
+  const minutes = Math.floor(seconds / 60);
+  if (minutes > 0) {
+    parts.push(`${minutes}m`);
+    seconds %= 60;
+  }
+  parts.push(`${seconds}s`);
+  const duration = parts.join(" ");
+  return future ? `in ${duration}` : `${duration} ago`;
+}
+
+function formatLiveTimestamp(value, now = new Date()) {
+  const absolute = formatServerTime(value, now);
+  const relative = formatRelativeTime(value, now);
+  return relative === "" ? absolute : `${absolute} (${relative})`;
+}
+
+function createLiveTimestamp(value) {
+  const element = document.createElement("time");
+  element.className = "live-timestamp";
+  element.dataset.timestamp = value || "";
+  if (value && !Number.isNaN(new Date(value).getTime())) {
+    element.dateTime = value;
+  }
+  element.textContent = formatLiveTimestamp(value);
+  return element;
+}
+
+function updateLiveTimestamps() {
+  const now = new Date();
+  for (const element of document.querySelectorAll(".live-timestamp")) {
+    element.textContent = formatLiveTimestamp(element.dataset.timestamp, now);
+  }
+}
+
+window.setInterval(updateLiveTimestamps, 1000);
 
 function formatIncidentCount(count) {
   return `${count} ${count === 1 ? "incident" : "incidents"}`;
@@ -182,10 +239,14 @@ function renderServers(items) {
     for (const [columnIndex, value] of [
       item.id,
       item.connected ? "online" : "offline",
-      formatServerTime(item.lastHeartbeatTime),
+      item.lastHeartbeatTime,
     ].entries()) {
       const cell = row.insertCell();
-      cell.textContent = value;
+      if (columnIndex === 2) {
+        cell.appendChild(createLiveTimestamp(value));
+      } else {
+        cell.textContent = value;
+      }
       if (columnIndex === 1) {
         cell.className = item.connected ? "status-connected" : "status-disconnected";
       }
