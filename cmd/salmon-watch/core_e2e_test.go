@@ -389,6 +389,35 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 	}
 }
 
+func TestConnectedEventClearsPreviousHeartbeat(t *testing.T) {
+	previousHeartbeat := time.Now().Add(-2 * time.Hour)
+	statusWebserver := newStatusWebserver(statusWebserverParams{})
+	core := &salmonWatchCore{
+		statusWebserver: statusWebserver,
+		serverStatuses: map[string]serverStatus{
+			"server": {
+				ID:                "server",
+				LastHeartbeatTime: &previousHeartbeat,
+				initialized:       true,
+			},
+		},
+		serverIDs: []string{"server"},
+	}
+
+	core.onConnectionEvent("server", wsclient.ConnectionEvent{
+		EventKind: wsclient.EventKindConnected,
+		Time:      time.Now(),
+	})
+
+	status := core.serverStatuses["server"]
+	if !status.Connected {
+		t.Fatal("server is not marked connected")
+	}
+	if status.LastHeartbeatTime != nil {
+		t.Fatalf("last heartbeat = %v, want nil after connecting", status.LastHeartbeatTime)
+	}
+}
+
 func contains(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {

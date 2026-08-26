@@ -160,8 +160,20 @@ function formatRelativeTime(value, now = new Date()) {
     duration = "<15s";
   } else if (seconds < 60) {
     duration = `${Math.floor(seconds / 15) * 15}s`;
+  } else if (seconds < 86400) {
+    const totalMinutes = Math.floor(seconds / 60);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours === 0) {
+      duration = `${minutes}m`;
+    } else {
+      duration = minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
+    }
   } else {
-    duration = `${Math.floor(seconds / 60)}m`;
+    const totalHours = Math.floor(seconds / 3600);
+    const days = Math.floor(totalHours / 24);
+    const hours = totalHours % 24;
+    duration = hours === 0 ? `${days}d` : `${days}d ${hours}h`;
   }
   return future ? `in ${duration}` : `${duration} ago`;
 }

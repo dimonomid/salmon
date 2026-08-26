@@ -134,6 +134,9 @@ func (c *salmonWatchCore) onConnectionEvent(id string, event wsclient.Connection
 		status.Connected = connected
 		status.initialized = true
 		status.ConnectionChangedAt = &now
+		if connected {
+			status.LastHeartbeatTime = nil
+		}
 	}
 	c.serverStatuses[id] = status
 	c.serverStatusesMtx.Unlock()
