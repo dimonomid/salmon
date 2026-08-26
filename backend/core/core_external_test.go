@@ -33,10 +33,6 @@ func TestCorePublishesCommandIncidentLifecycle(t *testing.T) {
 					Command:                   []string{"sh", "-c", `test "$(cat "$1")" = healthy`, "sh", probePath},
 					PollInterval:              10 * time.Millisecond,
 					PollIntervalWhenUnhealthy: 10 * time.Millisecond,
-					Conditions: []exec.ConfigCondition{
-						{ExitCode: "0", Result: salmon.ItemStateOK},
-						{Result: salmon.ItemStateError},
-					},
 				},
 			},
 			{

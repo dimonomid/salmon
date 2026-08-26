@@ -20,8 +20,9 @@ type Config struct {
 
 	PollIntervalWhenUnhealthy time.Duration `yaml:"pollIntervalWhenUnhealthy"`
 
-	// Conditions contains the conditions to check. If none matches, a
-	// salmon.ItemStateError is assumed.
+	// Conditions contains the conditions to check. When omitted, exit code 0 is
+	// OK and every other exit code is an error. If configured conditions do not
+	// match, a salmon.ItemStateError is assumed. An explicit empty list is invalid.
 	Conditions []ConfigCondition `yaml:"conditions"`
 }
 

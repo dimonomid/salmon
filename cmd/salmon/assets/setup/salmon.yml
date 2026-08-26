@@ -44,9 +44,7 @@ core:
           - -c
           - |
             test "$(df -Pk / | awk 'NR == 2 { print $4 }')" -ge 102400
-        conditions:
-          - {exitCode: "0", result: ok}
-          - {result: error}
+        # With no conditions, exit code 0 is OK and every other code is an error.
 
   # Messengers publish incident updates. Multiple messengers can be used at
   # once, for example to log changes and expose the web UI.

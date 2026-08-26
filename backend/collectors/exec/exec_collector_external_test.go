@@ -20,6 +20,18 @@ func TestCollectorMapsCommandResultsToItems(t *testing.T) {
 		wantText    string
 	}{
 		{
+			name:      "default conditions accept exit zero",
+			command:   []string{"sh", "-c", "exit 0"},
+			wantState: salmon.ItemStateOK,
+			wantText:  "exit code: 0, applied condition #0",
+		},
+		{
+			name:      "default conditions reject nonzero exit",
+			command:   []string{"sh", "-c", "exit 9"},
+			wantState: salmon.ItemStateError,
+			wantText:  "exit code: 9, applied condition #1",
+		},
+		{
 			name:        "matching exit code",
 			description: "probe",
 			command:     []string{"sh", "-c", "exit 7"},
@@ -82,6 +94,22 @@ func TestCollectorMapsCommandResultsToItems(t *testing.T) {
 				t.Errorf("details without description have a leading colon: %q", got.Details)
 			}
 		})
+	}
+}
+
+func TestCollectorRejectsExplicitlyEmptyConditions(t *testing.T) {
+	collector, err := execcollector.NewCollector(execcollector.CollectorParams{
+		Common: collectors.Params{ID: "check", UpdatesChan: make(chan *collectors.Update)},
+		Config: execcollector.Config{
+			Command:    []string{"true"},
+			Conditions: []execcollector.ConfigCondition{},
+		},
+	})
+	if collector != nil {
+		collector.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "conditions must not be empty") {
+		t.Fatalf("error = %v, want explicit-empty-conditions error", err)
 	}
 }
 

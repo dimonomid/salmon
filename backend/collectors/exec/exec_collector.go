@@ -32,6 +32,12 @@ type CollectorParams struct {
 }
 
 func NewCollector(params CollectorParams) (*Collector, error) {
+	if params.Config.Conditions == nil {
+		params.Config.Conditions = []ConfigCondition{
+			{ExitCode: "0", Result: salmon.ItemStateOK},
+			{Result: salmon.ItemStateError},
+		}
+	}
 	if err := validateConfig(params.Config); err != nil {
 		return nil, err
 	}
@@ -68,6 +74,9 @@ func validateConfig(config Config) error {
 	}
 	if config.PollIntervalWhenUnhealthy < 0 {
 		return fmt.Errorf("pollIntervalWhenUnhealthy must not be negative")
+	}
+	if len(config.Conditions) == 0 {
+		return fmt.Errorf("conditions must not be empty")
 	}
 	for i, condition := range config.Conditions {
 		if condition.ExitCode != "" {
