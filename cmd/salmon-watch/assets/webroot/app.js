@@ -65,35 +65,6 @@ function setSectionSummary(summary, text, visible) {
   summary.replaceChildren(document.createTextNode(`▪ ${text} ${visible ? "▼" : "▲"}`));
 }
 
-function formatIncidentStartedAt(incidentStartedAt) {
-  const date = new Date(incidentStartedAt);
-  return Number.isNaN(date.getTime())
-    ? incidentStartedAt
-    : `${date.toLocaleString()} (${formatTimeAgo(incidentStartedAt)})`;
-}
-
-function formatTimeAgo(incidentStartedAt) {
-  const date = new Date(incidentStartedAt);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-
-  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (seconds < 0) {
-    return "in the future";
-  }
-  if (seconds < 60) {
-    return "just now";
-  }
-  if (seconds < 3600) {
-    return `${Math.floor(seconds / 60)}m ago`;
-  }
-  if (seconds < 86400) {
-    return `${Math.floor(seconds / 3600)}h ago`;
-  }
-  return `${Math.floor(seconds / 86400)}d ago`;
-}
-
 function formatTimeUntil(snoozedUntil) {
   const date = new Date(snoozedUntil);
   if (Number.isNaN(date.getTime())) {
@@ -245,7 +216,7 @@ function renderIncidentList(items, container, isSnoozed) {
       ["key", item.key],
       ["state", item.state],
       ["details", item.details],
-      ["started at", formatIncidentStartedAt(item.incidentStartedAt)],
+      ["started at", createLiveTimestamp(item.incidentStartedAt)],
     ];
     if (isSnoozed) {
       fields.push(["snoozed until", `${new Date(item.snoozedUntil).toLocaleString()} (${formatTimeUntil(item.snoozedUntil)})`]);
@@ -271,7 +242,11 @@ function renderIncidentList(items, container, isSnoozed) {
       row.appendChild(labelCell);
 
       const valueCell = row.insertCell();
-      valueCell.textContent = value;
+      if (value instanceof Node) {
+        valueCell.appendChild(value);
+      } else {
+        valueCell.textContent = value;
+      }
     }
 
     container.appendChild(table);
