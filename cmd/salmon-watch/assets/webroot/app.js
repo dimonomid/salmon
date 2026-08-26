@@ -41,15 +41,6 @@ themeToggle.addEventListener("click", () => {
   }
 });
 
-function visibilityPreference(key, defaultVisible = false) {
-  try {
-    const value = localStorage.getItem(key);
-    return value === null ? defaultVisible : value === "true";
-  } catch (_) {
-    return defaultVisible;
-  }
-}
-
 function saveVisibilityPreference(key, visible) {
   try {
     localStorage.setItem(key, String(visible));
@@ -70,11 +61,9 @@ function updateLiveTimestamp(element, now = new Date()) {
   element.textContent = formatLiveTimestamp(value, now);
 
   if (element.classList.contains("server-heartbeat")) {
-    const date = new Date(value);
-    const age = now.getTime() - date.getTime();
-    const validPastTimestamp = !Number.isNaN(age) && age >= 0;
-    element.classList.toggle("status-warning", validPastTimestamp && age >= 15000 && age < 30000);
-    element.classList.toggle("status-disconnected", validPastTimestamp && age >= 30000);
+    const statusClass = heartbeatStatusClass(value, now);
+    element.classList.toggle("status-warning", statusClass === "status-warning");
+    element.classList.toggle("status-disconnected", statusClass === "status-disconnected");
   }
 }
 
@@ -101,26 +90,12 @@ function updateLiveTimestamps() {
 
 window.setInterval(updateLiveTimestamps, 1000);
 
-function formatIncidentCount(count) {
-  return `${count} ${count === 1 ? "incident" : "incidents"}`;
-}
-
-function formatSnoozedIncidentCount(count) {
-  return `${count} snoozed ${count === 1 ? "incident" : "incidents"}`;
-}
-
 function renderServers(items) {
   items = items || [];
   lastServerItems = items;
-  const online = items.filter((item) => item.connected).length;
-  setSectionSummary(serverSummary, `${online}/${items.length} servers are online`, serverDetailsVisible);
-  if (online === items.length) {
-    serverSummary.className = "section-summary status-connected";
-  } else if (online === 0) {
-    serverSummary.className = "section-summary status-disconnected";
-  } else {
-    serverSummary.className = "section-summary status-warning";
-  }
+  const summary = summarizeServers(items);
+  setSectionSummary(serverSummary, summary.text, serverDetailsVisible);
+  serverSummary.className = `section-summary ${summary.statusClass}`;
   serverSummary.hidden = items.length === 0;
   servers.hidden = !serverDetailsVisible || items.length === 0;
   servers.replaceChildren();
@@ -160,22 +135,6 @@ serverSummary.addEventListener("click", () => {
   saveVisibilityPreference(serverDetailsVisibilityKey, serverDetailsVisible);
   renderServers(lastServerItems);
 });
-
-function iconURL(item) {
-  if (item.state === "ok") {
-    return "/icons/salmon_green.png";
-  }
-
-  if (item.key.startsWith("internal.")) {
-    return "/icons/salmon_magenta.png";
-  }
-
-  if (item.state === "warning") {
-    return "/icons/salmon_yellow.png";
-  }
-
-  return "/icons/salmon_red.png";
-}
 
 let snoozedVisible = visibilityPreference(snoozedVisibilityKey);
 let lastServerItems = [];
@@ -236,7 +195,7 @@ function renderIncidentList(items, container, isSnoozed) {
       controls.appendChild(button);
     } else {
       controls.appendChild(document.createTextNode("Snooze for: "));
-        for (const duration of ["15m", "30m", "1h", "4h", "6h", "12h", "1d", "2d", "7d"]) {
+      for (const duration of snoozeDurationOptions) {
         const button = document.createElement("button");
         button.type = "button";
         button.textContent = duration;
