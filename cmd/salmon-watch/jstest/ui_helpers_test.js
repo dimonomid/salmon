@@ -9,6 +9,8 @@ const {
   formatIncidentCount,
   formatSnoozedIncidentCount,
   summarizeServers,
+  isIncidentStale,
+  formatIncidentState,
   iconURL,
 } = require("../assets/webroot/ui_helpers.js");
 
@@ -85,6 +87,22 @@ test("summarizes server connectivity", () => {
     text: "0/2 servers are online",
     statusClass: "status-disconnected",
   });
+});
+
+test("reads stale state from incidents", () => {
+  assert.equal(isIncidentStale({stale: true}), true);
+  assert.equal(isIncidentStale({stale: false}), false);
+  assert.equal(isIncidentStale({}), false);
+});
+
+test("marks stale and snoozed incident states", () => {
+  assert.equal(formatIncidentState("error"), "error");
+  assert.equal(formatIncidentState("error", {snoozed: true}), "error (SNOOZED)");
+  assert.equal(formatIncidentState("error", {stale: true}), "error (STALE)");
+  assert.equal(
+    formatIncidentState("error", {stale: true, snoozed: true}),
+    "error (STALE, SNOOZED)",
+  );
 });
 
 test("selects incident icons", () => {

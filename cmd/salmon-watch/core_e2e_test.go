@@ -227,6 +227,17 @@ func hasAlertingKey(message statusMessage, key string) bool {
 	return false
 }
 
+// alertingIncident finds key in the alerting incidents carried by a decoded
+// status WebSocket message and reports whether it was present.
+func alertingIncident(message statusMessage, key string) (salmon.ItemWContext, bool) {
+	for _, incident := range message.OngoingIncidents.Alerting {
+		if string(incident.Key) == key {
+			return incident, true
+		}
+	}
+	return salmon.ItemWContext{}, false
+}
+
 func item(key, details string) *salmon.ItemWContext {
 	return &salmon.ItemWContext{
 		Item:              salmon.Item{Key: salmon.ItemKey(key), State: salmon.ItemStateError, Details: details},
@@ -355,12 +366,8 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 	// connection failure as an internal incident and notify about it.
 	second.closeConnections()
 	message = readStatusUntil(t, statusConn, func(message statusMessage) bool {
-		for _, incident := range message.OngoingIncidents.Alerting {
-			if incident.Key == "internal.connection.second" && incident.State == salmon.ItemStateError {
-				return true
-			}
-		}
-		return false
+		incident, found := alertingIncident(message, "second.cpu")
+		return found && incident.Stale && hasAlertingKey(message, "internal.connection.second")
 	})
 	internalError := false
 	for _, incident := range message.OngoingIncidents.Alerting {
@@ -372,21 +379,45 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 		t.Fatalf("connection failure incident missing: %#v", message.OngoingIncidents.Alerting)
 	}
 	gotTitles = notifications.waitForCount(t, 4)
-	if !contains(gotTitles, "error: internal.connection.second") {
-		t.Fatalf("connection failure notification missing: %#v", gotTitles)
+	if len(gotTitles) != 4 || !contains(gotTitles, "error: internal.connection.second") {
+		t.Fatalf("unexpected notifications after connection failure: %#v", gotTitles)
 	}
 
-	// The client reconnects, clearing the internal connection incident while
-	// preserving the last known incidents from that server.
+	// The client reconnects and clears the internal connection incident, but the
+	// retained incident stays stale until the server supplies a new snapshot.
 	second.waitConnected(t)
 	message = readStatusUntil(t, statusConn, func(message statusMessage) bool {
-		return !hasAlertingKey(message, "internal.connection.second")
+		incident, found := alertingIncident(message, "second.cpu")
+		connected := false
+		for _, server := range message.Servers {
+			if server.ID == "second" {
+				connected = server.Connected
+			}
+		}
+		return connected && found && incident.Stale &&
+			!hasAlertingKey(message, "internal.connection.second")
 	})
 	for _, incident := range message.OngoingIncidents.Alerting {
 		if incident.Key == "internal.connection.second" {
 			t.Fatalf("connection failure incident was not cleared: %#v", message.OngoingIncidents.Alerting)
 		}
 	}
+
+	// A new snapshot from the reconnected server replaces its stale incident
+	// with a fresh one.
+	second.send(t, salmon.Notification{OngoingIncidents: salmon.OngoingIncidentsWDelta{
+		Total: []*salmon.ItemWContext{item("cpu", "second refreshed")},
+	}})
+	message = readStatusUntil(t, statusConn, func(message statusMessage) bool {
+		incident, found := alertingIncident(message, "second.cpu")
+		return found && !incident.Stale && incident.Details == "second refreshed"
+	})
+
+	// An empty source snapshot replaces and removes its stale/fresh cache alike.
+	second.send(t, salmon.Notification{OngoingIncidents: salmon.OngoingIncidentsWDelta{}})
+	_ = readStatusUntil(t, statusConn, func(message statusMessage) bool {
+		return !hasAlertingKey(message, "second.cpu")
+	})
 }
 
 func TestConnectedEventClearsPreviousHeartbeat(t *testing.T) {

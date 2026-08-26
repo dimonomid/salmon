@@ -7,6 +7,7 @@
   --connected: #7ad879;
   --disconnected: #ff7b72;
   --warning: #f1c453;
+  --stale: #999;
   --section-indent: 2ch;
 }
 
@@ -19,6 +20,7 @@
   --connected: green;
   --disconnected: red;
   --warning: #b8860b;
+  --stale: #666;
 }
 
 @font-face {
@@ -123,4 +125,8 @@ textarea {
 
 .snoozed-incident {
   background: var(--surface);
+}
+
+.stale-incident {
+  color: var(--stale);
 }

@@ -114,20 +114,7 @@ func (c *Combiner) applyNotification(id string, notif *salmon.Notification) {
 	defer c.totalMtx.Unlock()
 
 	c.totalByID[id] = notif.OngoingIncidents.Total
-
-	ids := make([]string, 0, len(c.totalByID))
-	fullLen := 0
-	for id, items := range c.totalByID {
-		ids = append(ids, id)
-		fullLen += len(items)
-	}
-
-	sort.Strings(ids)
-
-	total := make([]*salmon.ItemWContext, 0, fullLen)
-	for _, id := range ids {
-		total = append(total, c.totalByID[id]...)
-	}
+	total := c.combinedTotalLocked()
 
 	notifCombined := &salmon.Notification{
 		Time: notif.Time,
@@ -148,6 +135,63 @@ func (c *Combiner) applyNotification(id string, notif *salmon.Notification) {
 	}
 }
 
+// combinedTotalLocked returns all cached server snapshots in stable server-ID
+// order. The caller must hold totalMtx.
+func (c *Combiner) combinedTotalLocked() []*salmon.ItemWContext {
+	ids := make([]string, 0, len(c.totalByID))
+	fullLen := 0
+	for id, items := range c.totalByID {
+		ids = append(ids, id)
+		fullLen += len(items)
+	}
+
+	sort.Strings(ids)
+
+	total := make([]*salmon.ItemWContext, 0, fullLen)
+	for _, id := range ids {
+		total = append(total, c.totalByID[id]...)
+	}
+	return total
+}
+
+// markServerIncidentsStale replaces a server's cached incidents with stale
+// copies and publishes the resulting combined snapshot. Repeated disconnects
+// do not publish another update when everything is already stale.
+func (c *Combiner) markServerIncidentsStale(id string, eventTime time.Time) {
+	c.totalMtx.Lock()
+	defer c.totalMtx.Unlock()
+
+	items := c.totalByID[id]
+	updated := make([]*salmon.ItemWContext, 0, len(items))
+	changedItems := make([]*salmon.ItemWContext, 0, len(items))
+	for _, item := range items {
+		if item == nil {
+			updated = append(updated, nil)
+			continue
+		}
+		itemCopy := *item
+		if !itemCopy.Stale {
+			itemCopy.Stale = true
+			changedItems = append(changedItems, &itemCopy)
+		}
+		updated = append(updated, &itemCopy)
+	}
+	if len(changedItems) == 0 {
+		return
+	}
+
+	c.totalByID[id] = updated
+	if c.params.OngoingIncidentsHandler != nil {
+		c.params.OngoingIncidentsHandler(&salmon.Notification{
+			Time: eventTime,
+			OngoingIncidents: salmon.OngoingIncidentsWDelta{
+				Total:   c.combinedTotalLocked(),
+				Updated: changedItems,
+			},
+		})
+	}
+}
+
 func (c *Combiner) runWSClient(
 	cfg ConfigServer,
 	ongoingIncidentsCh <-chan *salmon.Notification,
@@ -161,6 +205,9 @@ func (c *Combiner) runWSClient(
 		case event := <-connectionEventCh:
 			if c.params.ConnectionStatusHandler != nil {
 				c.params.ConnectionStatusHandler(cfg.ID, event)
+			}
+			if event.EventKind == EventKindDisconnected {
+				c.markServerIncidentsStale(cfg.ID, event.Time)
 			}
 		case notif := <-ongoingIncidentsCh:
 			notif = getPrefixedNotif(notif, cfg.ID)
@@ -228,5 +275,6 @@ func getPrefixedItem(item *salmon.ItemWContext, prefix string) *salmon.ItemWCont
 		},
 
 		IncidentStartedAt: item.IncidentStartedAt,
+		Stale:             item.Stale,
 	}
 }

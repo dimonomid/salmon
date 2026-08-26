@@ -77,6 +77,24 @@ function summarizeServers(items) {
   };
 }
 
+// isIncidentStale reports the freshness recorded on the Watch incident.
+function isIncidentStale(item) {
+  return item.stale === true;
+}
+
+// formatIncidentState appends stale and snoozed markers in a stable order
+// without changing the source state.
+function formatIncidentState(state, {stale = false, snoozed = false} = {}) {
+  const markers = [];
+  if (stale) {
+    markers.push("STALE");
+  }
+  if (snoozed) {
+    markers.push("SNOOZED");
+  }
+  return markers.length === 0 ? state : `${state} (${markers.join(", ")})`;
+}
+
 // iconURL selects the incident icon, giving internal errors their distinct icon.
 function iconURL(item) {
   if (item.state === "ok") {
@@ -101,6 +119,8 @@ if (typeof module !== "undefined") {
     formatIncidentCount,
     formatSnoozedIncidentCount,
     summarizeServers,
+    isIncidentStale,
+    formatIncidentState,
     iconURL,
   };
 }

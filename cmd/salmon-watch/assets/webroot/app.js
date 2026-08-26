@@ -143,12 +143,16 @@ let lastSnoozedItems = [];
 
 function renderIncidentList(items, container, isSnoozed) {
   for (const item of items) {
+    const stale = isIncidentStale(item);
     const table = document.createElement("table");
     table.className = isSnoozed ? "incident snoozed-incident" : "incident";
+    if (stale) {
+      table.classList.add("stale-incident");
+    }
 
     const fields = [
       ["key", item.key],
-      ["state", item.state],
+      ["state", formatIncidentState(item.state, {stale, snoozed: isSnoozed})],
       ["details", item.details],
       ["started at", createLiveTimestamp(item.incidentStartedAt)],
     ];

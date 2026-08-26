@@ -35,6 +35,10 @@ type ItemWContext struct {
 
 	// IncidentStartedAt indicates when the current non-OK incident began.
 	IncidentStartedAt time.Time `json:"incidentStartedAt"`
+
+	// Stale reports that the incident's source disconnected after supplying it.
+	// A subsequent source snapshot replaces it with the snapshot's freshness.
+	Stale bool `json:"stale,omitempty"`
 }
 
 func (item *Item) Equals(other *Item) bool {
