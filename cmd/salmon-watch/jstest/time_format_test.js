@@ -9,6 +9,7 @@ const {
 
 const now = new Date(2026, 7, 26, 16, 16, 43);
 const ago = (milliseconds) => new Date(now.getTime() - milliseconds);
+const fromNow = (milliseconds) => new Date(now.getTime() + milliseconds);
 
 test("formats today's timestamp using 24-hour time", () => {
   assert.equal(formatServerTime(now, now), "16:16:43");
@@ -38,6 +39,7 @@ test("formats relative time buckets", () => {
 
 test("combines absolute and relative time", () => {
   assert.equal(formatLiveTimestamp(ago(13000), now), "16:16:30 (<15s ago)");
+  assert.equal(formatLiveTimestamp(fromNow(73 * 60000), now), "17:29:43 (in 1h 13m)");
 });
 
 test("formats a missing timestamp as never", () => {

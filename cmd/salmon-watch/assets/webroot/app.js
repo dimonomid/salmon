@@ -65,31 +65,6 @@ function setSectionSummary(summary, text, visible) {
   summary.replaceChildren(document.createTextNode(`▪ ${text} ${visible ? "▼" : "▲"}`));
 }
 
-function formatTimeUntil(snoozedUntil) {
-  const date = new Date(snoozedUntil);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-
-  const seconds = Math.floor((date.getTime() - Date.now()) / 1000);
-  if (seconds <= 0) {
-    return "now";
-  }
-  if (seconds < 60) {
-    return `in ${seconds} sec${seconds === 1 ? "" : "s"}`;
-  }
-  if (seconds < 3600) {
-    const minutes = Math.floor(seconds / 60);
-    return `in ${minutes} min${minutes === 1 ? "" : "s"}`;
-  }
-  if (seconds < 86400) {
-    const hours = Math.floor(seconds / 3600);
-    return `in ${hours} hour${hours === 1 ? "" : "s"}`;
-  }
-  const days = Math.floor(seconds / 86400);
-  return `in ${days} day${days === 1 ? "" : "s"}`;
-}
-
 function updateLiveTimestamp(element, now = new Date()) {
   const value = element.dataset.timestamp;
   element.textContent = formatLiveTimestamp(value, now);
@@ -219,7 +194,7 @@ function renderIncidentList(items, container, isSnoozed) {
       ["started at", createLiveTimestamp(item.incidentStartedAt)],
     ];
     if (isSnoozed) {
-      fields.push(["snoozed until", `${new Date(item.snoozedUntil).toLocaleString()} (${formatTimeUntil(item.snoozedUntil)})`]);
+      fields.push(["snoozed until", createLiveTimestamp(item.snoozedUntil)]);
     }
 
     for (const [fieldIndex, [label, value]] of fields.entries()) {
