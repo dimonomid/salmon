@@ -261,7 +261,7 @@ function renderIncidentList(items, container, isSnoozed) {
       controls.appendChild(button);
     } else {
       controls.appendChild(document.createTextNode("Snooze for: "));
-      for (const duration of ["30m", "1h", "4h", "6h", "12h", "1d", "7d", "forever"]) {
+        for (const duration of ["15m", "30m", "1h", "4h", "6h", "12h", "1d", "2d", "7d"]) {
         const button = document.createElement("button");
         button.type = "button";
         button.textContent = duration;

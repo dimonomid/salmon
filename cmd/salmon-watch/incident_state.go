@@ -14,15 +14,18 @@ import (
 )
 
 // snoozeDurations are the durations accepted by the status UI and API.
+// There is intentionally no permanent snooze: incidents that should be ignored
+// forever belong in the Salmon configuration instead.
 var snoozeDurations = map[string]time.Duration{
+	"15m":     15 * time.Minute,
 	"30m":     30 * time.Minute,
 	"1h":      time.Hour,
 	"4h":      4 * time.Hour,
 	"6h":      6 * time.Hour,
 	"12h":     12 * time.Hour,
 	"1d":      24 * time.Hour,
+	"2d":      2 * 24 * time.Hour,
 	"7d":      7 * 24 * time.Hour,
-	"forever": 100 * 365 * 24 * time.Hour,
 }
 
 // snoozeEntry is the on-disk representation of one incident's snooze expiry.
