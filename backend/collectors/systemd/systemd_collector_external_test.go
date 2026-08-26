@@ -60,6 +60,9 @@ func TestCollectorAppliesOrderedRulesAndReportsRemovedUnits(t *testing.T) {
 	assertSystemdItem(t, first, "services.important.service", salmon.ItemStateError)
 	assertSystemdItem(t, first, "services.another-important.service", salmon.ItemStateOK)
 	assertSystemdItem(t, first, "services.ignored.service", salmon.ItemStateOK)
+	assertSystemdDetails(t, first, "services.failed.service", "Unit failed.service is failed")
+	assertSystemdDetails(t, first, "services.another-important.service", "Unit another-important.service is active")
+	assertSystemdDetails(t, first, "services.important.service", "Unit important.service was not reported by systemd")
 	if _, exists := first.Items["services.socket.socket"]; exists {
 		t.Error("unmatched socket unit was published")
 	}
@@ -96,6 +99,33 @@ func TestCollectorForwardsProviderErrors(t *testing.T) {
 	if update.Err == nil || update.Err.Error() != "got error from systemd conn: dbus unavailable" {
 		t.Fatalf("error = %v, want wrapped provider error", update.Err)
 	}
+}
+
+func TestCollectorDefaultsUnmatchedConditionToError(t *testing.T) {
+	updates := make(chan *collectors.Update, 1)
+	var provider *controlledProvider
+	collector, err := systemd.NewCollector(systemd.CollectorParams{
+		Common: collectors.Params{ID: "services", UpdatesChan: updates},
+		Config: systemd.Config{UnitRules: []systemd.ConfigUnitRule{{
+			Names:      []string{"unmatched.service"},
+			Conditions: []systemd.ConfigCondition{{State: "active", Result: salmon.ItemStateOK}},
+		}}},
+		ProviderFactory: func(params systemd.ProviderParams) (systemd.Provider, error) {
+			provider = &controlledProvider{updates: params.UnitUpdatesChan, closed: make(chan struct{})}
+			return provider, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(collector.Close)
+
+	provider.updates <- &systemd.UnitUpdate{Units: map[string]*systemd.Unit{
+		"unmatched.service": {Name: "unmatched.service", State: "inactive"},
+	}}
+	update := receiveSystemdUpdate(t, updates)
+	assertSystemdItem(t, update, "services.unmatched.service", salmon.ItemStateError)
+	assertSystemdDetails(t, update, "services.unmatched.service", "Unit unmatched.service is inactive")
 }
 
 func TestCollectorRejectsInvalidResultsBeforeStartingProvider(t *testing.T) {
@@ -223,5 +253,17 @@ func assertSystemdItem(t *testing.T, update *collectors.Update, key salmon.ItemK
 	}
 	if item.State != state {
 		t.Errorf("%s state = %q, want %q", key, item.State, state)
+	}
+}
+
+func assertSystemdDetails(t *testing.T, update *collectors.Update, key salmon.ItemKey, details string) {
+	t.Helper()
+	item := update.Items[key]
+	if item == nil {
+		t.Errorf("update does not contain %q", key)
+		return
+	}
+	if item.Details != details {
+		t.Errorf("%s details = %q, want %q", key, item.Details, details)
 	}
 }

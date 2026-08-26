@@ -209,24 +209,23 @@ func (c *Collector) getItemFromUnit(unit *Unit) *salmon.Item {
 		// This rule applies to the given unit
 
 		item := &salmon.Item{
-			Key: c.itemKeyFromSystemdName(unit.Name),
+			Key:     c.itemKeyFromSystemdName(unit.Name),
+			Details: systemdUnitDetails(unit),
 		}
 
-		for i, cond := range rule.Conditions {
+		for _, cond := range rule.Conditions {
 			if cond.State != "" && cond.State != unit.State {
 				continue
 			}
 
 			// Found the matching condition, so use its result
 			item.State = cond.Result
-			item.Details = fmt.Sprintf("rule: {%s}, unit state: %s, applied condition #%d %+v", unitRuleFilterString(&rule), unit.State, i, cond)
 			break
 		}
 
 		if item.State == "" {
 			// By default, assume error
 			item.State = salmon.ItemStateError
-			item.Details = fmt.Sprintf("rule: {%s}, unit state: %s, did not find matching condition", unitRuleFilterString(&rule), unit.State)
 		}
 
 		return item
@@ -237,6 +236,15 @@ func (c *Collector) getItemFromUnit(unit *Unit) *salmon.Item {
 	return nil
 }
 
+func systemdUnitDetails(unit *Unit) string {
+	switch unit.State {
+	case UnitStateNotSentBySystemd:
+		return fmt.Sprintf("Unit %s was not reported by systemd", unit.Name)
+	default:
+		return fmt.Sprintf("Unit %s is %s", unit.Name, unit.State)
+	}
+}
+
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
@@ -244,31 +252,4 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
-}
-
-func unitRuleFilterString(rule *ConfigUnitRule) string {
-	var sb strings.Builder
-
-	if len(rule.Names) > 0 {
-		if sb.Len() > 0 {
-			sb.WriteString(",")
-		}
-		sb.WriteString("names=[")
-		sb.WriteString(strings.Join(rule.Names, ","))
-		sb.WriteString("]")
-	}
-
-	if rule.Type != "" {
-		if sb.Len() > 0 {
-			sb.WriteString(",")
-		}
-		sb.WriteString("type=")
-		sb.WriteString(rule.Type)
-	}
-
-	if sb.Len() == 0 {
-		return "default"
-	}
-
-	return sb.String()
 }
