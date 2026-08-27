@@ -83,12 +83,55 @@ func TestClientLogsReceivedServerIncidentTotal(t *testing.T) {
 
 func TestClientDisconnectsFromMalformedServerMessages(t *testing.T) {
 	tests := []struct {
-		name    string
-		message string
+		name            string
+		message         string
+		wantError       string
+		allowWriteError bool
 	}{
 		{name: "malformed envelope", message: `{"event":`},
 		{name: "malformed notification", message: `{"event":"OngoingIncidentsUpdate","data":"invalid"}`},
 		{name: "null notification", message: `{"event":"OngoingIncidentsSnapshot","data":null}`},
+		{
+			name:      "null total item",
+			message:   `{"event":"OngoingIncidentsSnapshot","data":{"ongoingIncidents":{"total":[null]}}}`,
+			wantError: "ongoingIncidents.total[0] is null",
+		},
+		{
+			name:      "null added item",
+			message:   `{"event":"OngoingIncidentsUpdate","data":{"ongoingIncidents":{"added":[null]}}}`,
+			wantError: "ongoingIncidents.added[0] is null",
+		},
+		{
+			name:      "null removed item",
+			message:   `{"event":"OngoingIncidentsUpdate","data":{"ongoingIncidents":{"removed":[null]}}}`,
+			wantError: "ongoingIncidents.removed[0] is null",
+		},
+		{
+			name:      "null updated item",
+			message:   `{"event":"OngoingIncidentsUpdate","data":{"ongoingIncidents":{"updated":[null]}}}`,
+			wantError: "ongoingIncidents.updated[0] is null",
+		},
+		{
+			name:      "empty item key",
+			message:   `{"event":"OngoingIncidentsSnapshot","data":{"ongoingIncidents":{"total":[{"key":"","state":"error"}]}}}`,
+			wantError: "ongoingIncidents.total[0].key is empty",
+		},
+		{
+			name:      "invalid item state",
+			message:   `{"event":"OngoingIncidentsSnapshot","data":{"ongoingIncidents":{"total":[{"key":"disk","state":"broken"}]}}}`,
+			wantError: `ongoingIncidents.total[0].state "broken" is invalid`,
+		},
+		{
+			name:      "negative healthy item count",
+			message:   `{"event":"OngoingIncidentsSnapshot","data":{"ongoingIncidents":{"numItemsOK":-1}}}`,
+			wantError: "ongoingIncidents.numItemsOK is negative",
+		},
+		{
+			name:            "message exceeds read limit",
+			message:         strings.Repeat("x", 2<<20),
+			wantError:       "read limit exceeded",
+			allowWriteError: true,
+		},
 	}
 
 	for _, test := range tests {
@@ -131,7 +174,7 @@ func TestClientDisconnectsFromMalformedServerMessages(t *testing.T) {
 			case <-time.After(3 * time.Second):
 				t.Fatal("client did not connect to test server")
 			}
-			if err := connection.WriteMessage(websocket.TextMessage, []byte(test.message)); err != nil {
+			if err := connection.WriteMessage(websocket.TextMessage, []byte(test.message)); err != nil && !test.allowWriteError {
 				t.Fatal(err)
 			}
 
@@ -145,6 +188,9 @@ func TestClientDisconnectsFromMalformedServerMessages(t *testing.T) {
 							select {
 							case connectionError := <-connectionErrors:
 								if connectionError != "" {
+									if test.wantError != "" && !strings.Contains(connectionError, test.wantError) {
+										t.Fatalf("connection error %q does not contain %q", connectionError, test.wantError)
+									}
 									reported = true
 								}
 							case <-time.After(3 * time.Second):

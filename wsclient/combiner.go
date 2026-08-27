@@ -252,7 +252,11 @@ func (c *Combiner) runWSClient(
 				c.markServerIncidentsStale(cfg.ID, event.Time)
 			}
 		case notif := <-ongoingIncidentsCh:
-			notif = getPrefixedNotif(notif, cfg.ID)
+			notif, err := getPrefixedNotif(notif, cfg.ID)
+			if err != nil {
+				c.params.Logger.Log(logs.Error, "Ignoring invalid incident notification from %s: %s", cfg.ID, err)
+				continue
+			}
 
 			c.applyNotification(cfg.ID, notif)
 
@@ -283,7 +287,11 @@ func (c *Combiner) runWSClient(
 	}
 }
 
-func getPrefixedNotif(notif *salmon.Notification, prefix string) *salmon.Notification {
+func getPrefixedNotif(notif *salmon.Notification, prefix string) (*salmon.Notification, error) {
+	if err := validateNotification(notif); err != nil {
+		return nil, err
+	}
+
 	return &salmon.Notification{
 		Time: notif.Time,
 
@@ -296,7 +304,7 @@ func getPrefixedNotif(notif *salmon.Notification, prefix string) *salmon.Notific
 
 			NumItemsOK: notif.OngoingIncidents.NumItemsOK,
 		},
-	}
+	}, nil
 }
 
 func getPrefixedItems(items []*salmon.ItemWContext, prefix string) []*salmon.ItemWContext {

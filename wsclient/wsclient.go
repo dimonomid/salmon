@@ -19,6 +19,11 @@ type wsMsgServer struct {
 }
 
 const (
+	// maxServerMessageBytes bounds memory used to receive a single message from
+	// a Salmon server. Heartbeats and incident notifications are expected to be
+	// much smaller than this.
+	maxServerMessageBytes = 1 << 20
+
 	// heartbeatPeriod is how often the server is expected to send heartbeats
 	heartbeatPeriod = 10 * time.Second
 
@@ -129,6 +134,7 @@ mainLoop:
 			c.params.Logger.Log(logs.Warning, "Failed to connect to %s (%s): %s", c.params.Config.ID, ustr, err)
 			continue mainLoop
 		}
+		conn.SetReadLimit(maxServerMessageBytes)
 
 		c.params.Logger.Log(logs.Info, "Connected to %s (%s)", c.params.Config.ID, ustr)
 		if !c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindConnected, Time: time.Now()}) {
@@ -215,6 +221,10 @@ mainLoop:
 						disconnectWithError(fmt.Errorf("decoding %s data: notification is null", msgServer.Event))
 						return
 					}
+					if err := validateNotification(notif); err != nil {
+						disconnectWithError(fmt.Errorf("validating %s data: %w", msgServer.Event, err))
+						return
+					}
 					updateKind := "update"
 					if msgServer.Event == "OngoingIncidentsSnapshot" {
 						updateKind = "snapshot"
@@ -253,6 +263,41 @@ mainLoop:
 			}
 		}
 	}
+}
+
+func validateNotification(notif *salmon.Notification) error {
+	if notif == nil {
+		return fmt.Errorf("notification is null")
+	}
+	if notif.OngoingIncidents.NumItemsOK < 0 {
+		return fmt.Errorf("ongoingIncidents.numItemsOK is negative")
+	}
+
+	lists := []struct {
+		name  string
+		items []*salmon.ItemWContext
+	}{
+		{name: "total", items: notif.OngoingIncidents.Total},
+		{name: "added", items: notif.OngoingIncidents.Added},
+		{name: "removed", items: notif.OngoingIncidents.Removed},
+		{name: "updated", items: notif.OngoingIncidents.Updated},
+	}
+	for _, list := range lists {
+		for i, item := range list.items {
+			field := fmt.Sprintf("ongoingIncidents.%s[%d]", list.name, i)
+			if item == nil {
+				return fmt.Errorf("%s is null", field)
+			}
+			if item.Key == "" {
+				return fmt.Errorf("%s.key is empty", field)
+			}
+			if !salmon.IsItemStateValid(item.State) {
+				return fmt.Errorf("%s.state %q is invalid", field, item.State)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (c *WSClient) sendOngoingIncidents(notif *salmon.Notification) bool {

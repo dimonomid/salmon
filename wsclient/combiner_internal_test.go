@@ -160,3 +160,12 @@ func TestGetPrefixedItemPreservesStale(t *testing.T) {
 		t.Fatalf("prefixed incident = %#v, want bridge.disk stale", item)
 	}
 }
+
+func TestGetPrefixedNotifRejectsNullItem(t *testing.T) {
+	_, err := getPrefixedNotif(&salmon.Notification{OngoingIncidents: salmon.OngoingIncidentsWDelta{
+		Total: []*salmon.ItemWContext{nil},
+	}}, "server")
+	if err == nil {
+		t.Fatal("null incident was accepted")
+	}
+}
