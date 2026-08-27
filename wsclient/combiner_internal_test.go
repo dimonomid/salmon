@@ -4,7 +4,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/benbjohnson/clock"
+
 	"github.com/dimonomid/salmon"
+	"github.com/dimonomid/salmon/logs"
 )
 
 func combinerTestIncident(key string, stale bool) *salmon.ItemWContext {
@@ -90,6 +93,64 @@ func TestCombinerSourceSnapshotReplacesStaleIncidents(t *testing.T) {
 	combiner.applyNotification("second", &salmon.Notification{})
 	if incident := incidentWithKey(latest.OngoingIncidents.Total, "second.cpu"); incident != nil {
 		t.Fatalf("empty source snapshot retained second.cpu: %#v", incident)
+	}
+}
+
+func TestCombinerForgetsOnlyStaleIncidentWithoutResolutionDelta(t *testing.T) {
+	clk := clock.NewMock()
+	var notifications []*salmon.Notification
+	combiner := &Combiner{
+		params: CombinerParams{
+			Clock:  clk,
+			Logger: logs.NewLogger(logs.LoggerParams{Clock: clk}),
+			OngoingIncidentsHandler: func(notification *salmon.Notification) {
+				notifications = append(notifications, notification)
+			},
+		},
+		totalByID: map[string][]*salmon.ItemWContext{
+			"first": {
+				combinerTestIncident("first.stale", true),
+				combinerTestIncident("first.fresh", false),
+			},
+			"second": {combinerTestIncident("second.stale", true)},
+		},
+	}
+
+	if !combiner.ForgetStaleIncident("first.stale") {
+		t.Fatal("stale incident was not forgotten")
+	}
+	if len(notifications) != 1 {
+		t.Fatalf("got %d notifications, want 1", len(notifications))
+	}
+	notification := notifications[0]
+	if incidentWithKey(notification.OngoingIncidents.Total, "first.stale") != nil {
+		t.Fatalf("forgotten incident remains in total: %#v", notification.OngoingIncidents.Total)
+	}
+	if incidentWithKey(notification.OngoingIncidents.Total, "first.fresh") == nil ||
+		incidentWithKey(notification.OngoingIncidents.Total, "second.stale") == nil {
+		t.Fatalf("forget removed an unrelated incident: %#v", notification.OngoingIncidents.Total)
+	}
+	if len(notification.OngoingIncidents.Added) != 0 ||
+		len(notification.OngoingIncidents.Removed) != 0 ||
+		len(notification.OngoingIncidents.Updated) != 0 {
+		t.Fatalf("forget notification contains a resolution delta: %#v", notification.OngoingIncidents)
+	}
+
+	if combiner.ForgetStaleIncident("first.stale") {
+		t.Fatal("already-forgotten incident was reported forgotten again")
+	}
+	if combiner.ForgetStaleIncident("first.fresh") {
+		t.Fatal("non-stale incident was forgotten")
+	}
+	if len(notifications) != 1 {
+		t.Fatalf("rejected forget published %d notifications, want 1", len(notifications))
+	}
+
+	combiner.applyNotification("first", &salmon.Notification{OngoingIncidents: salmon.OngoingIncidentsWDelta{
+		Total: []*salmon.ItemWContext{combinerTestIncident("first.stale", false)},
+	}})
+	if incident := incidentWithKey(notifications[len(notifications)-1].OngoingIncidents.Total, "first.stale"); incident == nil || incident.Stale {
+		t.Fatalf("source snapshot did not restore forgotten incident as fresh: %#v", incident)
 	}
 }
 

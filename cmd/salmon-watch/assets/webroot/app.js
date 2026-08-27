@@ -190,7 +190,14 @@ function renderIncidentList(items, container, isSnoozed) {
     container.appendChild(table);
 
     const controls = document.createElement("div");
-    controls.className = "snooze-controls";
+    controls.className = "incident-controls";
+    if (stale) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = "Forget stale";
+      button.addEventListener("click", () => forgetIncident(item.key));
+      controls.appendChild(button);
+    }
     if (isSnoozed) {
       const button = document.createElement("button");
       button.type = "button";
@@ -198,7 +205,7 @@ function renderIncidentList(items, container, isSnoozed) {
       button.addEventListener("click", () => unsnoozeIncident(item.key));
       controls.appendChild(button);
     } else {
-      controls.appendChild(document.createTextNode("Snooze for: "));
+      controls.appendChild(document.createTextNode(stale ? " Snooze for: " : "Snooze for: "));
       for (const duration of snoozeDurationOptions) {
         const button = document.createElement("button");
         button.type = "button";
@@ -290,6 +297,18 @@ async function unsnoozeIncident(key) {
 
   if (!response.ok) {
     connectionStatus.textContent = "Failed to unsnooze incident";
+  }
+}
+
+async function forgetIncident(key) {
+  const response = await fetch("/api/v1/forget", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({key}),
+  });
+
+  if (!response.ok) {
+    connectionStatus.textContent = "Failed to forget stale incident";
   }
 }
 

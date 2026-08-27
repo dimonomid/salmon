@@ -403,9 +403,31 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 			t.Fatalf("connection failure incident was not cleared: %#v", message.OngoingIncidents.Alerting)
 		}
 	}
+	notifications.waitForCount(t, 5)
 
-	// A new snapshot from the reconnected server replaces its stale incident
-	// with a fresh one.
+	// Forgetting removes the stale cached incident without pretending it
+	// recovered: there must be no OK desktop notification for second.cpu.
+	request, err := json.Marshal(map[string]string{"key": "second.cpu"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.Post(status.URL+"/api/v1/forget", "application/json", bytes.NewReader(request))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("forget returned HTTP %d", response.StatusCode)
+	}
+	_ = response.Body.Close()
+	_ = readStatusUntil(t, statusConn, func(message statusMessage) bool {
+		return !hasAlertingKey(message, "second.cpu")
+	})
+	if got := notifications.titles(); len(got) != 5 || contains(got, "OK: second.cpu") {
+		t.Fatalf("forget generated a recovery notification: %#v", got)
+	}
+
+	// A new snapshot from the reconnected server restores the forgotten incident
+	// as fresh when the source still reports it.
 	second.send(t, salmon.Notification{OngoingIncidents: salmon.OngoingIncidentsWDelta{
 		Total: []*salmon.ItemWContext{item("cpu", "second refreshed")},
 	}})

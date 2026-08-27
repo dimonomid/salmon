@@ -106,6 +106,7 @@ func newSalmonWatchCore(params salmonWatchCoreParams) (*salmonWatchCore, error) 
 	core.statusWebserver = newStatusWebserver(statusWebserverParams{
 		OnSnooze:   incidentState.Snooze,
 		OnUnsnooze: incidentState.Unsnooze,
+		OnForget:   core.forgetStaleIncident,
 		Logger:     params.Logger,
 	})
 	core.publishServerStatuses()
@@ -124,6 +125,13 @@ func newSalmonWatchCore(params salmonWatchCoreParams) (*salmonWatchCore, error) 
 		return nil, err
 	}
 	return core, nil
+}
+
+func (c *salmonWatchCore) forgetStaleIncident(key string) bool {
+	if c.combiner == nil {
+		return false
+	}
+	return c.combiner.ForgetStaleIncident(key)
 }
 
 func (c *salmonWatchCore) onConnectionEvent(id string, event wsclient.ConnectionEvent) {

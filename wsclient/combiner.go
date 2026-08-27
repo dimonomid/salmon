@@ -199,6 +199,41 @@ func (c *Combiner) markServerIncidentsStale(id string, eventTime time.Time) {
 	}
 }
 
+// ForgetStaleIncident removes a stale incident from the cached source snapshot
+// and publishes the new combined total. The notification intentionally has no
+// Removed delta: forgetting is a local dismissal, not evidence that the
+// incident was resolved. A later source snapshot can report the incident again.
+func (c *Combiner) ForgetStaleIncident(key string) bool {
+	c.totalMtx.Lock()
+	defer c.totalMtx.Unlock()
+
+	for id, items := range c.totalByID {
+		for i, item := range items {
+			if item == nil || string(item.Key) != key || !item.Stale {
+				continue
+			}
+
+			updated := make([]*salmon.ItemWContext, 0, len(items)-1)
+			updated = append(updated, items[:i]...)
+			updated = append(updated, items[i+1:]...)
+			c.totalByID[id] = updated
+
+			c.params.Logger.Log(logs.Info, "Forgot stale incident %s", key)
+			if c.params.OngoingIncidentsHandler != nil {
+				c.params.OngoingIncidentsHandler(&salmon.Notification{
+					Time: c.params.Clock.Now(),
+					OngoingIncidents: salmon.OngoingIncidentsWDelta{
+						Total: c.combinedTotalLocked(),
+					},
+				})
+			}
+			return true
+		}
+	}
+
+	return false
+}
+
 func (c *Combiner) runWSClient(
 	cfg ConfigServer,
 	ongoingIncidentsCh <-chan *salmon.Notification,

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -123,6 +125,35 @@ func TestStatusBroadcastDisconnectsClientWhoseQueueIsFull(t *testing.T) {
 func TestStatusWebsocketQueueSize(t *testing.T) {
 	if statusWebsocketQueueSize != 64 {
 		t.Fatalf("status WebSocket queue size = %d, want 64", statusWebsocketQueueSize)
+	}
+}
+
+func TestForgetEndpointForgetsOnlyStaleIncident(t *testing.T) {
+	var forgottenKey string
+	status := newStatusWebserver(statusWebserverParams{
+		Logger: watchTestLogger,
+		OnForget: func(key string) bool {
+			forgottenKey = key
+			return key == "server.disk"
+		},
+	})
+	handler := rootHandler(status)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/forget", strings.NewReader(`{"key":"server.disk"}`))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("forget returned HTTP %d, want %d", response.Code, http.StatusNoContent)
+	}
+	if forgottenKey != "server.disk" {
+		t.Fatalf("forgotten key = %q, want server.disk", forgottenKey)
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/forget", strings.NewReader(`{"key":"server.fresh"}`))
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("non-stale forget returned HTTP %d, want %d", response.Code, http.StatusConflict)
 	}
 }
 

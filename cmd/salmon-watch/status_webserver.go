@@ -30,6 +30,7 @@ type statusWebserver struct {
 	serverStatuses []serverStatus
 	onSnooze       func(string, time.Duration) error
 	onUnsnooze     func(string) error
+	onForget       func(string) bool
 
 	clientsMtx sync.Mutex
 	clients    map[*statusWebsocketClient]struct{}
@@ -46,6 +47,9 @@ type statusWebserverParams struct {
 	// OnUnsnooze removes a snooze. The incident-state update hook publishes the
 	// resulting snapshot to connected status pages.
 	OnUnsnooze func(key string) error
+	// OnForget drops a stale incident from the source cache and publishes the
+	// resulting snapshot.
+	OnForget func(key string) bool
 }
 
 // localStatusServer owns the HTTP server and listener used by the local status
@@ -91,6 +95,7 @@ func newStatusWebserver(params statusWebserverParams) *statusWebserver {
 		logger:     params.Logger.WithNamespaceAppended("StatusWebserver"),
 		onSnooze:   params.OnSnooze,
 		onUnsnooze: params.OnUnsnooze,
+		onForget:   params.OnForget,
 		clients:    make(map[*statusWebsocketClient]struct{}),
 	}
 }
@@ -131,7 +136,7 @@ type snoozeRequest struct {
 	Duration string `json:"duration"`
 }
 
-type unsnoozeRequest struct {
+type incidentKeyRequest struct {
 	Key string `json:"key"`
 }
 
@@ -163,7 +168,7 @@ func (s *statusWebserver) unsnooze(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	var request unsnoozeRequest
+	var request incidentKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.Key == "" {
 		http.Error(w, "invalid unsnooze request", http.StatusBadRequest)
 		return
@@ -171,6 +176,24 @@ func (s *statusWebserver) unsnooze(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.onUnsnooze(request.Key); err != nil {
 		http.Error(w, "failed to persist unsnooze", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *statusWebserver) forget(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var request incidentKeyRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.Key == "" {
+		http.Error(w, "invalid forget request", http.StatusBadRequest)
+		return
+	}
+
+	if s.onForget == nil || !s.onForget(request.Key) {
+		http.Error(w, "incident is not stale or no longer exists", http.StatusConflict)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -340,6 +363,7 @@ func rootHandler(statusWebserver *statusWebserver) http.Handler {
 	mux.HandleFunc("/api/v1/wsconnect", statusWebserver.wsConnect)
 	mux.HandleFunc("/api/v1/snooze", statusWebserver.snooze)
 	mux.HandleFunc("/api/v1/unsnooze", statusWebserver.unsnooze)
+	mux.HandleFunc("/api/v1/forget", statusWebserver.forget)
 	for _, iconName := range []string{"gray", "green", "magenta", "yellow", "red"} {
 		iconAssetPath := fmt.Sprintf("assets/salmon_%s.png", iconName)
 		mux.HandleFunc("/icons/salmon_"+iconName+".png", func(assetPath string) http.HandlerFunc {
