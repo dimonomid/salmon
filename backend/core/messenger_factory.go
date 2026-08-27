@@ -8,12 +8,14 @@ import (
 	"github.com/dimonomid/salmon/backend/messengers"
 	"github.com/dimonomid/salmon/backend/messengers/filelogger"
 	"github.com/dimonomid/salmon/backend/messengers/webserver"
+	"github.com/dimonomid/salmon/logs"
 )
 
 // messengerWCtx contains the messenger and its context (e.g. channels for that
 // messenger)
 type messengerWCtx struct {
 	messenger messengers.Messenger
+	logger    *logs.Logger
 
 	notificationsChan chan *salmon.Notification
 	tornDown          chan struct{}
@@ -60,16 +62,19 @@ func createMessenger(
 	return nil, fmt.Errorf("no valid messenger configuration")
 }
 
-func createMessengers(cfgs []Messenger, ib *itemsboard.ItemsBoard) ([]messengerWCtx, error) {
+func createMessengers(cfgs []Messenger, ib *itemsboard.ItemsBoard, logger *logs.Logger) ([]messengerWCtx, error) {
 	ret := make([]messengerWCtx, 0, len(cfgs))
 
 	for i, cfg := range cfgs {
+		messengerLogger := logger.WithContext("messenger_index", fmt.Sprintf("%d", i))
 		mwCtx := messengerWCtx{
 			notificationsChan: make(chan *salmon.Notification, 32),
 			tornDown:          make(chan struct{}),
+			logger:            messengerLogger,
 		}
 
 		commonParams := messengers.Params{
+			Logger:            messengerLogger,
 			ItemsBoard:        ib,
 			NotificationsChan: mwCtx.notificationsChan,
 			TornDown:          mwCtx.tornDown,

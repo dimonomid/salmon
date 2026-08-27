@@ -10,28 +10,34 @@ import (
 
 	"github.com/dimonomid/salmon/backend/core"
 	"github.com/dimonomid/salmon/internal/setup"
+	"github.com/dimonomid/salmon/logs"
 )
 
 // runSalmon loads the configuration and runs the monitoring core until a
 // termination signal arrives.
-func runSalmon(configFilename string) error {
+func runSalmon(configFilename string, minLogLevel logs.LogLevel) error {
 	cfg, err := loadConfig(configFilename)
 	if err != nil {
 		return salmonConfigReadError(configFilename, err)
 	}
 
-	c, err := core.NewCore(cfg.Core, core.Params{Clock: clock.New()})
+	clk := clock.New()
+	logger := logs.NewLogger(logs.LoggerParams{
+		Clock: clk,
+		Sinks: []logs.LoggerSinkParams{{MinLevel: minLogLevel}},
+	}).WithNamespaceAppended("Salmon")
+	c, err := core.NewCore(cfg.Core, core.Params{Clock: clk, Logger: logger})
 	if err != nil {
 		return fmt.Errorf("failed to initialize salmon core: %w", err)
 	}
 
-	fmt.Println("Salmon core is initialized")
+	logger.Log(logs.Info, "Monitoring started")
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
-	<-sigCh
-	fmt.Println("Exiting...")
+	sig := <-sigCh
+	logger.Log(logs.Info, "Received %s; shutting down", sig)
 	c.Close()
-	fmt.Println("Bye.")
+	logger.Log(logs.Info, "Shutdown complete")
 	return nil
 }
 

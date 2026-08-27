@@ -13,11 +13,14 @@ import (
 	"github.com/skratchdot/open-golang/open"
 
 	"github.com/dimonomid/salmon/internal/setup"
+	"github.com/dimonomid/salmon/logs"
 )
 
 // watchApp owns the configuration and lifecycle state of one tray instance.
 type watchApp struct {
 	config       *config
+	clock        clock.Clock
+	logger       *logs.Logger
 	core         *salmonWatchCore
 	statusServer *localStatusServer
 }
@@ -43,25 +46,27 @@ func (app *watchApp) onReady() {
 		Config:        app.config.WSClient,
 		StatePath:     filepath.Join(homeDir, ".salmon-watch-state.json"),
 		Notifications: notify,
-		Clock:         clock.New(),
+		Clock:         app.clock,
+		Logger:        app.logger,
 		OnIconState: func(state trayState) {
 			applyIcon(state)
 			mitemStatus.SetTitle(trayStatusTitle(state))
 		},
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to start Salmon Watch core: %s\n", err)
+		app.logger.Log(logs.Error, "Failed to start: %s", err)
 		os.Exit(1)
 	}
 
 	app.statusServer = setupWebserver(app.core.statusWebserver)
 	port := app.statusServer.Addr().(*net.TCPAddr).Port
 
-	fmt.Printf("Listening on %d\n", port)
+	app.logger.Log(logs.Info, "Status UI is available at http://localhost:%d/status", port)
 
 	go func() {
 		if err := app.statusServer.Serve(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			panic(err)
+			app.logger.Log(logs.Error, "Status webserver stopped unexpectedly: %s", err)
+			systray.Quit()
 		}
 	}()
 
@@ -91,11 +96,11 @@ func watchConfigReadError(configFilename string, err error) error {
 func (app *watchApp) onExit() {
 	if app.statusServer != nil {
 		if err := app.statusServer.Close(); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to close status webserver: %s\n", err)
+			app.logger.Log(logs.Error, "Failed to close status webserver: %s", err)
 		}
 	}
 	if app.core != nil {
 		app.core.Close()
 	}
-	fmt.Println("Exiting")
+	app.logger.Log(logs.Info, "Shutdown complete")
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/dimonomid/salmon"
 	"github.com/dimonomid/salmon/backend/messengers"
+	"github.com/dimonomid/salmon/logs"
 )
 
 const timeFmt = "2006-01-02 15:04:05.000"
@@ -25,6 +26,10 @@ type Params struct {
 }
 
 func New(params Params) (*FileLogger, error) {
+	if params.Common.Logger == nil {
+		panic("Logger is required")
+	}
+	params.Common.Logger = params.Common.Logger.WithNamespaceAppended("FileLogger")
 	var f *os.File
 
 	if params.Config.FileName != "" {
@@ -45,7 +50,7 @@ func New(params Params) (*FileLogger, error) {
 
 	go fl.run()
 
-	fmt.Println("Writing logs to", fl.filenameHumanReadable())
+	params.Common.Logger.Log(logs.Info, "Writing incident transitions to %s", fl.filenameHumanReadable())
 
 	return fl, nil
 }
@@ -87,7 +92,7 @@ func (fl *FileLogger) run() {
 
 	if fl.params.Config.FileName != "" {
 		if err := fl.f.Close(); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to close output file: %s\n", err.Error())
+			fl.params.Common.Logger.Log(logs.Error, "Failed to close %s: %s", fl.filenameHumanReadable(), err)
 		}
 	}
 

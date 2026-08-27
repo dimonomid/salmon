@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/dimonomid/salmon"
+	"github.com/dimonomid/salmon/logs"
 )
 
 const defPort = 41991
@@ -23,6 +24,7 @@ const statusWebsocketQueueSize = 64
 // statusWebserver transports already-classified incident snapshots to the
 // local status UI. Classification itself belongs to incidentState.
 type statusWebserver struct {
+	logger         *logs.Logger
 	snapshotMtx    sync.RWMutex
 	snapshot       incidentSnapshot
 	serverStatuses []serverStatus
@@ -37,6 +39,7 @@ type statusWebserver struct {
 // statusWebserverParams contains the application callbacks needed by the
 // status webserver.
 type statusWebserverParams struct {
+	Logger *logs.Logger
 	// OnSnooze persists a snooze. The incident-state update hook publishes the
 	// resulting snapshot to connected status pages.
 	OnSnooze func(key string, duration time.Duration) error
@@ -81,7 +84,11 @@ type statusWebsocketMessage struct {
 }
 
 func newStatusWebserver(params statusWebserverParams) *statusWebserver {
+	if params.Logger == nil {
+		panic("Logger is required")
+	}
 	return &statusWebserver{
+		logger:     params.Logger.WithNamespaceAppended("StatusWebserver"),
 		onSnooze:   params.OnSnooze,
 		onUnsnooze: params.OnUnsnooze,
 		clients:    make(map[*statusWebsocketClient]struct{}),
@@ -187,7 +194,7 @@ func (s *statusWebserver) broadcast(message statusWebsocketMessage) {
 		default:
 		}
 		if !sendStatusWebsocketUpdate(client.updates, message) {
-			fmt.Println("status WebSocket update queue is full; disconnecting slow client")
+			s.logger.Log(logs.Warning, "Disconnecting status WebSocket client because its update queue is full")
 			// Close the connection immediately instead of draining its stale
 			// backlog. If the browser reconnects, it receives a fresh snapshot.
 			s.clientsMtx.Lock()
@@ -215,7 +222,7 @@ func sendStatusWebsocketUpdate(ch chan<- statusWebsocketMessage, message statusW
 func (s *statusWebserver) wsConnect(w http.ResponseWriter, r *http.Request) {
 	conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 	if err != nil {
-		fmt.Println("Error upgrading status websocket:", err)
+		s.logger.Log(logs.Warning, "Failed to upgrade status WebSocket connection: %s", err)
 		return
 	}
 
@@ -287,7 +294,7 @@ func (s *statusWebserver) closeClients() {
 func setupWebserver(statusWebserver *statusWebserver) *localStatusServer {
 	listener, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", defPort))
 	if err != nil {
-		fmt.Printf("Failed to listen on a default port %d (%s), listening on random port\n", defPort, err)
+		statusWebserver.logger.Log(logs.Warning, "Port %d is unavailable (%s); using a random local port", defPort, err)
 		listener, err = net.Listen("tcp4", "127.0.0.1:0")
 		if err != nil {
 			panic(err.Error())

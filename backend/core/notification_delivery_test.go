@@ -4,8 +4,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/benbjohnson/clock"
+
 	"github.com/dimonomid/salmon"
+	"github.com/dimonomid/salmon/logs"
 )
+
+var notificationTestLogger = logs.NewLogger(logs.LoggerParams{Clock: clock.New()})
 
 type namedMessenger string
 
@@ -19,7 +24,7 @@ func TestSendMessengerNotificationWaitsForCapacity(t *testing.T) {
 	shutdown := make(chan struct{})
 	result := make(chan bool, 1)
 	go func() {
-		result <- sendMessengerNotification(messengerWCtx{messenger: namedMessenger("test"), notificationsChan: ch}, second, shutdown)
+		result <- sendMessengerNotification(messengerWCtx{messenger: namedMessenger("test"), logger: notificationTestLogger, notificationsChan: ch}, second, shutdown)
 	}()
 
 	if got := <-ch; got != first {
@@ -45,7 +50,7 @@ func TestSendMessengerNotificationUnblocksDuringShutdown(t *testing.T) {
 	result := make(chan bool, 1)
 	go func() {
 		result <- sendMessengerNotification(
-			messengerWCtx{messenger: namedMessenger("test"), notificationsChan: ch},
+			messengerWCtx{messenger: namedMessenger("test"), logger: notificationTestLogger, notificationsChan: ch},
 			&salmon.Notification{},
 			shutdown,
 		)
@@ -71,8 +76,8 @@ func TestSlowMessengerDoesNotDelayHealthyMessenger(t *testing.T) {
 	notif := &salmon.Notification{}
 	go func() {
 		sendMessengerNotifications([]messengerWCtx{
-			{messenger: namedMessenger("slow"), notificationsChan: slowCh},
-			{messenger: namedMessenger("healthy"), notificationsChan: healthyCh},
+			{messenger: namedMessenger("slow"), logger: notificationTestLogger, notificationsChan: slowCh},
+			{messenger: namedMessenger("healthy"), logger: notificationTestLogger, notificationsChan: healthyCh},
 		}, notif, shutdown)
 		close(done)
 	}()

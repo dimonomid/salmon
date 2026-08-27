@@ -12,7 +12,7 @@ import (
 )
 
 func TestSetupWebserverListensOnlyOnIPv4Loopback(t *testing.T) {
-	server := setupWebserver(newStatusWebserver(statusWebserverParams{}))
+	server := setupWebserver(newStatusWebserver(statusWebserverParams{Logger: watchTestLogger}))
 	t.Cleanup(func() { _ = server.Close() })
 
 	address, ok := server.Addr().(*net.TCPAddr)
@@ -94,7 +94,7 @@ func TestLocalStatusServerCloseRejectsConcurrentWebsockets(t *testing.T) {
 }
 
 func TestStatusBroadcastDisconnectsClientWhoseQueueIsFull(t *testing.T) {
-	status := newStatusWebserver(statusWebserverParams{})
+	status := newStatusWebserver(statusWebserverParams{Logger: watchTestLogger})
 	client := &statusWebsocketClient{
 		updates: make(chan statusWebsocketMessage, 1),
 		done:    make(chan struct{}),
@@ -128,7 +128,7 @@ func TestStatusWebsocketQueueSize(t *testing.T) {
 
 func startLocalStatusServer(t *testing.T) (*localStatusServer, <-chan error) {
 	t.Helper()
-	server := setupWebserver(newStatusWebserver(statusWebserverParams{}))
+	server := setupWebserver(newStatusWebserver(statusWebserverParams{Logger: watchTestLogger}))
 	t.Cleanup(func() { _ = server.Close() })
 	serveDone := make(chan error, 1)
 	go func() { serveDone <- server.Serve() }()

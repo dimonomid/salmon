@@ -2,7 +2,6 @@ package webserver
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/juju/errors"
 
 	"github.com/dimonomid/salmon"
+	"github.com/dimonomid/salmon/logs"
 )
 
 type wsEvent string
@@ -70,7 +70,14 @@ func (s *Webserver) wsConnect(w http.ResponseWriter, r *http.Request) (resp inte
 
 func (s *Webserver) wsRxLoop(conn *wsConn) (err error) {
 	defer func() {
-		fmt.Println("breaking out of rx loop:", err)
+		if err != nil {
+			select {
+			case <-conn.ctx.Done():
+				s.params.Common.Logger.Log(logs.Debug, "WebSocket subscriber %d receive loop stopped", conn.subID)
+			default:
+				s.params.Common.Logger.Log(logs.Warning, "WebSocket subscriber %d disconnected: %s", conn.subID, err)
+			}
+		}
 
 		s.unsubscribe(conn.subID)
 	}()
@@ -93,7 +100,7 @@ func (s *Webserver) wsRxLoop(conn *wsConn) (err error) {
 
 func (s *Webserver) wsTxLoop(conn *wsConn, notifications <-chan *salmon.Notification) {
 	defer func() {
-		fmt.Println("breaking out of tx loop")
+		s.params.Common.Logger.Log(logs.Debug, "WebSocket subscriber %d send loop stopped", conn.subID)
 		s.unsubscribe(conn.subID)
 	}()
 
@@ -107,7 +114,7 @@ func (s *Webserver) wsTxLoop(conn *wsConn, notifications <-chan *salmon.Notifica
 			},
 		},
 	}); err != nil {
-		fmt.Println("initial snapshot write error:", err)
+		s.params.Common.Logger.Log(logs.Warning, "Failed to send initial snapshot to WebSocket subscriber %d: %s", conn.subID, err)
 		return
 	}
 
@@ -125,13 +132,13 @@ func (s *Webserver) wsTxLoop(conn *wsConn, notifications <-chan *salmon.Notifica
 				Event: wsEventOngoingIncidentsUpdate,
 				Data:  notif,
 			}); err != nil {
-				fmt.Println("notification write error:", err)
+				s.params.Common.Logger.Log(logs.Warning, "Failed to send incident update to WebSocket subscriber %d: %s", conn.subID, err)
 				return
 			}
 
 		case <-heartbeats.C:
 			if err := conn.conn.WriteMessage(websocket.BinaryMessage, []byte{0}); err != nil {
-				fmt.Println("heartbeat write error:", err)
+				s.params.Common.Logger.Log(logs.Warning, "Failed to send heartbeat to WebSocket subscriber %d: %s", conn.subID, err)
 				return
 			}
 		}

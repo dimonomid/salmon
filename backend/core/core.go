@@ -2,13 +2,13 @@ package core
 
 import (
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
 	"github.com/dimonomid/salmon"
 	"github.com/dimonomid/salmon/backend/collectors"
 	"github.com/dimonomid/salmon/backend/itemsboard"
+	"github.com/dimonomid/salmon/logs"
 	"github.com/dimonomid/salmon/statestracker"
 
 	"github.com/benbjohnson/clock"
@@ -31,18 +31,24 @@ type Core struct {
 }
 
 type Params struct {
-	Clock clock.Clock
+	Clock  clock.Clock
+	Logger *logs.Logger
 }
 
 func NewCore(cfg Config, params Params) (*Core, error) {
 	if params.Clock == nil {
 		panic("Clock is required")
 	}
+	if params.Logger == nil {
+		panic("Logger is required")
+	}
+	params.Logger = params.Logger.WithNamespaceAppended("Core")
 	updCh := make(chan *collectors.Update, 16)
 
 	collParams := collectors.Params{
 		// NOTE: ID will be populated later for every collector individually.
 
+		Logger:      params.Logger,
 		UpdatesChan: updCh,
 	}
 
@@ -53,7 +59,7 @@ func NewCore(cfg Config, params Params) (*Core, error) {
 		return nil, fmt.Errorf("creating collectors: %w", err)
 	}
 
-	messengers, err := createMessengers(cfg.Messengers, ib)
+	messengers, err := createMessengers(cfg.Messengers, ib, params.Logger)
 	if err != nil {
 		for _, collector := range colls {
 			collector.Close()
@@ -119,25 +125,28 @@ func (c *Core) close() {
 func (c *Core) run() {
 	for upd := range c.updCh {
 		if upd.Err != nil {
-			fmt.Printf("HEY error %+v\n", upd.Err)
+			c.params.Logger.Log(logs.Error, "Collector update failed: %+v", upd.Err)
 			// TODO: convert it to some kind of internal incident
 			continue
 		}
 
-		//d, err := json.MarshalIndent(upd.Items, "", "  ")
-		//if err != nil {
-		//panic(err.Error())
-		//}
-		//fmt.Printf("YO some update: %s\n", string(d))
-
 		notif := c.tracker.FeedItems(upd.Items)
 		if notif != nil {
-			//d, err := json.MarshalIndent(notif, "", "  ")
-			//if err != nil {
-			//panic(err.Error())
-			//}
-
-			//fmt.Printf("HEY incidents update: %s\n", string(d))
+			for _, item := range notif.OngoingIncidents.Added {
+				if item == nil {
+					continue
+				}
+				if item.Details == "" {
+					c.params.Logger.Log(logs.Info, "Incident started: %s (%s)", item.Key, item.State)
+				} else {
+					c.params.Logger.Log(logs.Info, "Incident started: %s (%s): %s", item.Key, item.State, item.Details)
+				}
+			}
+			for _, item := range notif.OngoingIncidents.Removed {
+				if item != nil {
+					c.params.Logger.Log(logs.Info, "Incident resolved: %s", item.Key)
+				}
+			}
 
 			// We must update items board _before_ sending notifications to the
 			// messenger channels; this way, when messengers fan notifications out
@@ -150,8 +159,6 @@ func (c *Core) run() {
 			c.ib.Set(notif.OngoingIncidents.Total)
 
 			sendMessengerNotifications(c.messengers, notif, c.shutdown)
-		} else {
-			//fmt.Printf("HEY incidents no-op update\n")
 		}
 	}
 
@@ -189,10 +196,10 @@ func sendMessengerNotification(mwCtx messengerWCtx, notif *salmon.Notification, 
 	}
 
 	started := time.Now()
-	fmt.Fprintf(os.Stderr, "non-blocking notification send to %s did not complete; sending blocking\n", mwCtx.messenger.String())
+	mwCtx.logger.Log(logs.Warning, "Notification delivery is blocked; waiting for %s", mwCtx.messenger.String())
 	select {
 	case mwCtx.notificationsChan <- notif:
-		fmt.Fprintf(os.Stderr, "blocking notification send to %s completed after %s\n", mwCtx.messenger.String(), time.Since(started))
+		mwCtx.logger.Log(logs.Warning, "Notification delivery to %s resumed after %s", mwCtx.messenger.String(), time.Since(started))
 		return true
 	case <-shutdown:
 		return false

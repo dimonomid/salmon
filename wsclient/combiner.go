@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/dimonomid/salmon"
+	"github.com/dimonomid/salmon/logs"
 	"github.com/dimonomid/salmon/statestracker"
 	"github.com/juju/errors"
 
@@ -39,6 +40,7 @@ type Combiner struct {
 
 type CombinerParams struct {
 	Config Config
+	Logger *logs.Logger
 
 	OngoingIncidentsHandler func(notif *salmon.Notification)
 
@@ -52,6 +54,10 @@ func NewCombiner(params CombinerParams) (*Combiner, error) {
 	if err := params.Config.Validate(); err != nil {
 		return nil, err
 	}
+	if params.Logger == nil {
+		panic("Logger is required")
+	}
+	params.Logger = params.Logger.WithNamespaceAppended("Combiner")
 
 	c := &Combiner{
 		params: params,
@@ -71,6 +77,7 @@ func NewCombiner(params CombinerParams) (*Combiner, error) {
 
 		wsc, err := New(Params{
 			Config: cfg,
+			Logger: params.Logger,
 
 			OngoingIncidentsCh: ongoingIncidentsCh,
 			ConnErrorCh:        connErrorCh,

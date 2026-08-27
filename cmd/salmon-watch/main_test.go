@@ -48,6 +48,20 @@ func TestWatchRunnableCommandsRejectPositionalArguments(t *testing.T) {
 	}
 }
 
+func TestWatchLogLevelFlagDefaultsToInfoAndRejectsInvalidValues(t *testing.T) {
+	command := newWatchRootCommand()
+	flag := command.Flags().Lookup("log-level")
+	if flag == nil || flag.DefValue != "info" {
+		t.Fatalf("log-level flag = %#v, want default info", flag)
+	}
+	command.SetOut(&bytes.Buffer{})
+	command.SetErr(&bytes.Buffer{})
+	command.SetArgs([]string{"--log-level", "verbose"})
+	if err := command.Execute(); err == nil || !strings.Contains(err.Error(), "invalid log level") {
+		t.Fatalf("error = %v, want invalid-log-level error", err)
+	}
+}
+
 func TestWatchStartCommand(t *testing.T) {
 	got, err := watchStartCommand(defaultWatchConfigPath())
 	if err != nil {

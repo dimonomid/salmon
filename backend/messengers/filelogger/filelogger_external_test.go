@@ -6,10 +6,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/benbjohnson/clock"
+
 	"github.com/dimonomid/salmon"
 	"github.com/dimonomid/salmon/backend/itemsboard"
 	"github.com/dimonomid/salmon/backend/messengers"
 	"github.com/dimonomid/salmon/backend/messengers/filelogger"
+	"github.com/dimonomid/salmon/logs"
 )
 
 func TestLoggerWritesObservableIncidentTransitions(t *testing.T) {
@@ -18,6 +21,7 @@ func TestLoggerWritesObservableIncidentTransitions(t *testing.T) {
 	done := make(chan struct{})
 	_, err := filelogger.New(filelogger.Params{
 		Common: messengers.Params{
+			Logger:            logs.NewLogger(logs.LoggerParams{Clock: clock.New()}),
 			ItemsBoard:        itemsboard.New(),
 			NotificationsChan: notifications,
 			TornDown:          done,

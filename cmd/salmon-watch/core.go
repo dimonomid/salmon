@@ -1,20 +1,20 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
 	"sync"
 	"time"
 
 	"github.com/benbjohnson/clock"
 
 	"github.com/dimonomid/salmon"
+	"github.com/dimonomid/salmon/logs"
 	"github.com/dimonomid/salmon/wsclient"
 )
 
 // salmonWatchCore contains Salmon Watch's event processing without any systray or
 // process-lifecycle concerns, making it usable from end-to-end tests.
 type salmonWatchCore struct {
+	logger          *logs.Logger
 	incidentState   *incidentState
 	statusWebserver *statusWebserver
 	notifications   notificator
@@ -58,7 +58,8 @@ type salmonWatchCoreParams struct {
 	// OnIconState applies the aggregated incident state to the tray UI.
 	OnIconState func(trayState)
 	// Clock supplies time to all incident and snooze state; it is required.
-	Clock clock.Clock
+	Clock  clock.Clock
+	Logger *logs.Logger
 	// ReconnectDelay overrides the production 5*time.Second reconnect delay
 	// when non-zero.
 	ReconnectDelay time.Duration
@@ -71,6 +72,10 @@ func newSalmonWatchCore(params salmonWatchCoreParams) (*salmonWatchCore, error) 
 	if params.Clock == nil {
 		panic("Clock is required")
 	}
+	if params.Logger == nil {
+		panic("Logger is required")
+	}
+	params.Logger = params.Logger.WithNamespaceAppended("Core")
 	if err := params.Config.Validate(); err != nil {
 		return nil, err
 	}
@@ -78,15 +83,16 @@ func newSalmonWatchCore(params salmonWatchCoreParams) (*salmonWatchCore, error) 
 	var incidentState *incidentState
 	var err error
 	if params.SnoozeCheckInterval > 0 {
-		incidentState, err = newIncidentStateWithInterval(params.StatePath, params.SnoozeCheckInterval, params.Clock)
+		incidentState, err = newIncidentStateWithInterval(params.StatePath, params.SnoozeCheckInterval, params.Clock, params.Logger)
 	} else {
-		incidentState, err = newIncidentState(params.StatePath, params.Clock)
+		incidentState, err = newIncidentState(params.StatePath, params.Clock, params.Logger)
 	}
 	if err != nil {
 		return nil, err
 	}
 
 	core := &salmonWatchCore{
+		logger:         params.Logger,
 		incidentState:  incidentState,
 		notifications:  params.Notifications,
 		onIconState:    params.OnIconState,
@@ -100,12 +106,14 @@ func newSalmonWatchCore(params salmonWatchCoreParams) (*salmonWatchCore, error) 
 	core.statusWebserver = newStatusWebserver(statusWebserverParams{
 		OnSnooze:   incidentState.Snooze,
 		OnUnsnooze: incidentState.Unsnooze,
+		Logger:     params.Logger,
 	})
 	core.publishServerStatuses()
 	incidentState.OnUpdate = core.onIncidentUpdate
 
 	core.combiner, err = wsclient.NewCombiner(wsclient.CombinerParams{
 		Config:                  params.Config,
+		Logger:                  params.Logger,
 		OngoingIncidentsHandler: core.onNotification,
 		Clock:                   params.Clock,
 		ReconnectDelay:          params.ReconnectDelay,
@@ -184,9 +192,6 @@ func (c *salmonWatchCore) onIncidentUpdate(snapshot incidentSnapshot) {
 func (c *salmonWatchCore) onNotification(notif *salmon.Notification) {
 	snapshot := c.incidentState.Update(notif.OngoingIncidents.Total)
 
-	d, _ := json.MarshalIndent(notif, "", "  ")
-	fmt.Println(string(d))
-
 	if c.notifications != nil {
 		for _, item := range notif.OngoingIncidents.Added {
 			if c.incidentState.IsSnoozed(string(item.Key)) {
@@ -206,5 +211,5 @@ func (c *salmonWatchCore) onNotification(notif *salmon.Notification) {
 	}
 
 	state := getOverallStateFromItems(snapshot.Alerting)
-	fmt.Println("Overall state:", state)
+	c.logger.Log(logs.Info, "Overall state is %s (%d alerting, %d snoozed)", state, len(snapshot.Alerting), len(snapshot.Snoozed))
 }

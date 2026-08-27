@@ -13,6 +13,7 @@ import (
 
 	"github.com/dimonomid/salmon"
 	"github.com/dimonomid/salmon/backend/collectors"
+	"github.com/dimonomid/salmon/logs"
 	"github.com/juju/errors"
 )
 
@@ -76,6 +77,10 @@ type CollectorParams struct {
 }
 
 func NewCollector(params CollectorParams) (*Collector, error) {
+	if params.Common.Logger == nil {
+		panic("Logger is required")
+	}
+	params.Common.Logger = params.Common.Logger.WithNamespaceAppended("ExecCollector")
 	if params.Config.Conditions == nil {
 		params.Config.Conditions = []ConfigCondition{
 			{ExitCode: "0", Result: salmon.ItemStateOK},
@@ -104,7 +109,7 @@ func NewCollector(params CollectorParams) (*Collector, error) {
 
 	go c.run()
 
-	fmt.Printf("Collecting data using exec (%s), polling every %s\n", params.Common.ID, c.params.Config.PollInterval)
+	params.Common.Logger.Log(logs.Info, "Started; polling every %s", c.params.Config.PollInterval)
 
 	return c, nil
 }
@@ -275,16 +280,16 @@ func (c *Collector) runCommand() *salmon.Item {
 
 		// Found the matching condition, so use its result
 		ret.State = cond.Result
-		fmt.Printf("Exec result (%s): exit code %s, applied condition #%d %+v\n",
-			c.params.Common.ID, exitCodeStr, i, cond)
+		c.params.Common.Logger.Log(logs.Debug, "Command exited with code %s; matched condition #%d %+v",
+			exitCodeStr, i, cond)
 		break
 	}
 
 	// If no condition matched, assume error
 	if ret.State == "" {
 		ret.State = salmon.ItemStateError
-		fmt.Printf("Exec result (%s): exit code %s, did not find matching condition\n",
-			c.params.Common.ID, exitCodeStr)
+		c.params.Common.Logger.Log(logs.Warning, "Command exited with code %s; no condition matched, assuming error",
+			exitCodeStr)
 	}
 
 	dynamicDetails := stdout.String()

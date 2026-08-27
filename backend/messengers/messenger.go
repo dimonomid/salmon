@@ -3,6 +3,7 @@ package messengers
 import (
 	"github.com/dimonomid/salmon"
 	"github.com/dimonomid/salmon/backend/itemsboard"
+	"github.com/dimonomid/salmon/logs"
 )
 
 type Messenger interface {
@@ -12,6 +13,8 @@ type Messenger interface {
 }
 
 type Params struct {
+	Logger *logs.Logger
+
 	// ItemsBoard is the board from which the messenger can get current state of
 	// things. It's guaranteed to be updated _before_ notifications are delivered
 	// to NotificationsChan.

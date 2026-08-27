@@ -5,10 +5,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/benbjohnson/clock"
+
 	"github.com/dimonomid/salmon"
 	"github.com/dimonomid/salmon/backend/collectors"
 	execcollector "github.com/dimonomid/salmon/backend/collectors/exec"
+	"github.com/dimonomid/salmon/logs"
 )
+
+var testLogger = logs.NewLogger(logs.LoggerParams{Clock: clock.New()})
 
 func TestCollectorMapsCommandResultsToItems(t *testing.T) {
 	tests := []struct {
@@ -79,7 +84,7 @@ func TestCollectorMapsCommandResultsToItems(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			updates := make(chan *collectors.Update, 1)
 			collector, err := execcollector.NewCollector(execcollector.CollectorParams{
-				Common: collectors.Params{ID: "check", UpdatesChan: updates},
+				Common: collectors.Params{ID: "check", Logger: testLogger, UpdatesChan: updates},
 				Config: execcollector.Config{
 					Description:               test.description,
 					Command:                   test.command,
@@ -121,7 +126,7 @@ func TestCollectorMapsCommandResultsToItems(t *testing.T) {
 
 func TestCollectorRejectsExplicitlyEmptyConditions(t *testing.T) {
 	collector, err := execcollector.NewCollector(execcollector.CollectorParams{
-		Common: collectors.Params{ID: "check", UpdatesChan: make(chan *collectors.Update)},
+		Common: collectors.Params{ID: "check", Logger: testLogger, UpdatesChan: make(chan *collectors.Update)},
 		Config: execcollector.Config{
 			Command:    []string{"true"},
 			Conditions: []execcollector.ConfigCondition{},
@@ -138,7 +143,7 @@ func TestCollectorRejectsExplicitlyEmptyConditions(t *testing.T) {
 func TestCollectorCloseCancelsAStuckCommand(t *testing.T) {
 	updates := make(chan *collectors.Update)
 	collector, err := execcollector.NewCollector(execcollector.CollectorParams{
-		Common: collectors.Params{ID: "check", UpdatesChan: updates},
+		Common: collectors.Params{ID: "check", Logger: testLogger, UpdatesChan: updates},
 		Config: execcollector.Config{
 			Command:                   []string{"sh", "-c", "sleep 30"},
 			PollInterval:              time.Hour,

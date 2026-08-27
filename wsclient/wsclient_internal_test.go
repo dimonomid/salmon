@@ -4,8 +4,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/benbjohnson/clock"
+
 	"github.com/dimonomid/salmon"
+	"github.com/dimonomid/salmon/logs"
 )
+
+var testLoggerInternal = logs.NewLogger(logs.LoggerParams{Clock: clock.New()})
 
 func TestSendOngoingIncidentsWaitsForCapacity(t *testing.T) {
 	first := &salmon.Notification{}
@@ -13,7 +18,7 @@ func TestSendOngoingIncidentsWaitsForCapacity(t *testing.T) {
 	notifications := make(chan *salmon.Notification, 1)
 	notifications <- first
 	client := &WSClient{
-		params:    Params{Config: ConfigServer{ID: "test"}, OngoingIncidentsCh: notifications},
+		params:    Params{Config: ConfigServer{ID: "test"}, Logger: testLoggerInternal, OngoingIncidentsCh: notifications},
 		interrupt: make(chan struct{}),
 	}
 	result := make(chan bool, 1)
@@ -39,7 +44,7 @@ func TestSendOngoingIncidentsUnblocksWhenInterrupted(t *testing.T) {
 	notifications := make(chan *salmon.Notification, 1)
 	notifications <- &salmon.Notification{}
 	client := &WSClient{
-		params:    Params{Config: ConfigServer{ID: "test"}, OngoingIncidentsCh: notifications},
+		params:    Params{Config: ConfigServer{ID: "test"}, Logger: testLoggerInternal, OngoingIncidentsCh: notifications},
 		interrupt: make(chan struct{}),
 	}
 	result := make(chan bool, 1)
@@ -62,7 +67,7 @@ func TestSendConnectionEventWaitsForCapacity(t *testing.T) {
 	events := make(chan ConnectionEvent, 1)
 	events <- first
 	client := &WSClient{
-		params:    Params{Config: ConfigServer{ID: "test"}, ConnectionEventCh: events},
+		params:    Params{Config: ConfigServer{ID: "test"}, Logger: testLoggerInternal, ConnectionEventCh: events},
 		interrupt: make(chan struct{}),
 	}
 	result := make(chan bool, 1)
@@ -88,7 +93,7 @@ func TestSendConnectionEventUnblocksWhenInterrupted(t *testing.T) {
 	events := make(chan ConnectionEvent, 1)
 	events <- ConnectionEvent{EventKind: EventKindConnected}
 	client := &WSClient{
-		params:    Params{Config: ConfigServer{ID: "test"}, ConnectionEventCh: events},
+		params:    Params{Config: ConfigServer{ID: "test"}, Logger: testLoggerInternal, ConnectionEventCh: events},
 		interrupt: make(chan struct{}),
 	}
 	result := make(chan bool, 1)

@@ -7,6 +7,7 @@ import (
 
 	"github.com/dimonomid/salmon"
 	"github.com/dimonomid/salmon/backend/collectors"
+	"github.com/dimonomid/salmon/logs"
 )
 
 type Collector struct {
@@ -33,6 +34,10 @@ type CollectorParams struct {
 }
 
 func NewCollector(params CollectorParams) (*Collector, error) {
+	if params.Common.Logger == nil {
+		panic("Logger is required")
+	}
+	params.Common.Logger = params.Common.Logger.WithNamespaceAppended("SystemdCollector")
 	if err := validateConfig(params.Config); err != nil {
 		return nil, err
 	}
@@ -58,7 +63,7 @@ func NewCollector(params CollectorParams) (*Collector, error) {
 
 	go c.run(providerUpdCh)
 
-	fmt.Printf("Collecting data from systemd (%s)\n", params.Common.ID)
+	params.Common.Logger.Log(logs.Info, "Started")
 
 	return c, nil
 }

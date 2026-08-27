@@ -76,6 +76,7 @@ func createCollectors(
 
 		curCommonParams := commonParams
 		curCommonParams.ID = cfg.ID
+		curCommonParams.Logger = commonParams.Logger.WithContext("collector", cfg.ID)
 		c, err := createCollector(cfg, curCommonParams)
 		if err != nil {
 			// Creating this entry failed after earlier collectors had already

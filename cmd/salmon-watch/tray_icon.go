@@ -58,6 +58,23 @@ const (
 	overallStateError
 )
 
+func (s overallState) String() string {
+	switch s {
+	case overallStateUnknown:
+		return "unknown"
+	case overallStateOK:
+		return "ok"
+	case overallStateInternalError:
+		return "internal error"
+	case overallStateWarning:
+		return "warning"
+	case overallStateError:
+		return "error"
+	default:
+		return fmt.Sprintf("invalid state %d", s)
+	}
+}
+
 func loadTrayIcons() {
 	trayIcons = newIconCombiner()
 }

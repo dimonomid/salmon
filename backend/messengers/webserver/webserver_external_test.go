@@ -9,13 +9,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/benbjohnson/clock"
 	"github.com/gorilla/websocket"
 
 	"github.com/dimonomid/salmon"
 	"github.com/dimonomid/salmon/backend/itemsboard"
 	"github.com/dimonomid/salmon/backend/messengers"
 	server "github.com/dimonomid/salmon/backend/messengers/webserver"
+	"github.com/dimonomid/salmon/logs"
 )
+
+var testLogger = logs.NewLogger(logs.LoggerParams{Clock: clock.New()})
 
 type websocketEnvelope struct {
 	Event string          `json:"event"`
@@ -124,7 +128,7 @@ func TestServerReportsBindFailure(t *testing.T) {
 	notifications := make(chan *salmon.Notification)
 	done := make(chan struct{})
 	_, err := server.New(server.Params{
-		Common: messengers.Params{ItemsBoard: itemsboard.New(), NotificationsChan: notifications, TornDown: done},
+		Common: messengers.Params{Logger: testLogger, ItemsBoard: itemsboard.New(), NotificationsChan: notifications, TornDown: done},
 		Config: server.Config{ListenAddress: first.Addr().String()},
 	})
 	if err == nil {
@@ -198,7 +202,7 @@ func startServer(t *testing.T, board *itemsboard.ItemsBoard) (*server.Webserver,
 	notifications := make(chan *salmon.Notification, 4)
 	done := make(chan struct{})
 	webserver, err := server.New(server.Params{
-		Common: messengers.Params{ItemsBoard: board, NotificationsChan: notifications, TornDown: done},
+		Common: messengers.Params{Logger: testLogger, ItemsBoard: board, NotificationsChan: notifications, TornDown: done},
 		Config: server.Config{ListenAddress: "127.0.0.1:0"},
 	})
 	if err != nil {

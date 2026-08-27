@@ -5,15 +5,21 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/benbjohnson/clock"
+
 	"github.com/dimonomid/salmon"
 	"github.com/dimonomid/salmon/backend/itemsboard"
 	"github.com/dimonomid/salmon/backend/messengers"
+	"github.com/dimonomid/salmon/logs"
 	"github.com/gorilla/websocket"
 )
+
+var testLoggerInternal = logs.NewLogger(logs.LoggerParams{Clock: clock.New()})
 
 func TestWSTransmitFailureUnsubscribesConnection(t *testing.T) {
 	serverConnections := make(chan *websocket.Conn, 1)
@@ -44,7 +50,7 @@ func TestWSTransmitFailureUnsubscribesConnection(t *testing.T) {
 		ctxCancel: cancel,
 	}
 	webserver := &Webserver{
-		params:  Params{Common: messengers.Params{ItemsBoard: itemsboard.New()}},
+		params:  Params{Common: messengers.Params{Logger: testLoggerInternal, ItemsBoard: itemsboard.New()}},
 		subs:    make(map[int]chan *salmon.Notification),
 		wsConns: make(map[int]*wsConn),
 	}
@@ -90,6 +96,7 @@ func TestWebsocketSubscriptionQueueSize(t *testing.T) {
 	defer cancel()
 	connection := &wsConn{ctx: ctx, ctxCancel: cancel}
 	webserver := &Webserver{
+		params:  Params{Common: messengers.Params{Logger: testLoggerInternal}},
 		subs:    make(map[int]chan *salmon.Notification),
 		wsConns: make(map[int]*wsConn),
 	}
@@ -103,13 +110,47 @@ func TestWebsocketSubscriptionQueueSize(t *testing.T) {
 	}
 }
 
+func TestWebsocketClientLifecycleIsLoggedAtInfo(t *testing.T) {
+	logPath := t.TempDir() + "/webserver.log"
+	logger := logs.NewLogger(logs.LoggerParams{
+		Clock: clock.New(),
+		Sinks: []logs.LoggerSinkParams{{Filepath: logPath, MinLevel: logs.Info}},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	connection := &wsConn{ctx: ctx, ctxCancel: cancel}
+	webserver := &Webserver{
+		params:  Params{Common: messengers.Params{Logger: logger}},
+		subs:    make(map[int]chan *salmon.Notification),
+		wsConns: make(map[int]*wsConn),
+	}
+
+	id, _, ok := webserver.subscribe(connection)
+	if !ok {
+		t.Fatal("subscription was rejected")
+	}
+	webserver.unsubscribe(id)
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"[I] WebSocket client 0 connected from unknown address",
+		"[I] WebSocket client 0 disconnected from unknown address",
+	} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("log %q does not contain %q", data, want)
+		}
+	}
+}
+
 func TestRunDisconnectsSubscriberWhoseQueueIsFull(t *testing.T) {
 	incoming := make(chan *salmon.Notification, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	connection := &wsConn{ctx: ctx, ctxCancel: cancel}
 	webserver := &Webserver{
-		params:  Params{Common: messengers.Params{NotificationsChan: incoming}},
+		params:  Params{Common: messengers.Params{Logger: testLoggerInternal, NotificationsChan: incoming}},
 		server:  &http.Server{},
 		subs:    make(map[int]chan *salmon.Notification),
 		wsConns: make(map[int]*wsConn),

@@ -14,12 +14,21 @@ import (
 	"github.com/dimonomid/salmon/backend/core"
 	"github.com/dimonomid/salmon/backend/messengers/filelogger"
 	"github.com/dimonomid/salmon/backend/messengers/webserver"
+	"github.com/dimonomid/salmon/logs"
 )
+
+var testLogger = logs.NewLogger(logs.LoggerParams{Clock: clock.New()})
 
 func TestCorePublishesCommandIncidentLifecycle(t *testing.T) {
 	directory := t.TempDir()
 	probePath := directory + "/probe-state"
 	logPath := directory + "/events.log"
+	applicationLogPath := directory + "/salmon.log"
+	clk := clock.New()
+	applicationLogger := logs.NewLogger(logs.LoggerParams{
+		Clock: clk,
+		Sinks: []logs.LoggerSinkParams{{Filepath: applicationLogPath, MinLevel: logs.Info}},
+	})
 	if err := os.WriteFile(probePath, []byte("failed\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +55,7 @@ func TestCorePublishesCommandIncidentLifecycle(t *testing.T) {
 			},
 		},
 		Messengers: []core.Messenger{{FileLogger: &filelogger.Config{FileName: logPath}}},
-	}, core.Params{Clock: clock.New()})
+	}, core.Params{Clock: clk, Logger: applicationLogger})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,10 +63,13 @@ func TestCorePublishesCommandIncidentLifecycle(t *testing.T) {
 
 	waitForFileText(t, logPath, "[ error ] probe.exec_result")
 	waitForFileText(t, logPath, "[ warning ] second-probe.exec_result")
+	waitForFileText(t, applicationLogPath, "Incident started: probe.exec_result (error)")
+	waitForFileText(t, applicationLogPath, "Incident started: second-probe.exec_result (warning)")
 	if err := os.WriteFile(probePath, []byte("healthy\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	waitForFileText(t, logPath, "[ ok ] probe.exec_result")
+	waitForFileText(t, applicationLogPath, "Incident resolved: probe.exec_result")
 
 	done := make(chan struct{})
 	go func() {
@@ -77,14 +89,14 @@ func TestCoreRejectsAmbiguousComponentConfiguration(t *testing.T) {
 	validSystemd := &systemd.Config{}
 	_, err := core.NewCore(core.Config{Collectors: []core.Collector{{
 		ID: "ambiguous", Exec: validExec, Systemd: validSystemd,
-	}}}, core.Params{Clock: clock.New()})
+	}}}, core.Params{Clock: clock.New(), Logger: testLogger})
 	if err == nil || !strings.Contains(err.Error(), "exactly one collector type") {
 		t.Fatalf("ambiguous collector error = %v", err)
 	}
 
 	_, err = core.NewCore(core.Config{Messengers: []core.Messenger{{
 		FileLogger: &filelogger.Config{}, Webserver: &webserver.Config{ListenAddress: "127.0.0.1:0"},
-	}}}, core.Params{Clock: clock.New()})
+	}}}, core.Params{Clock: clock.New(), Logger: testLogger})
 	if err == nil || !strings.Contains(err.Error(), "exactly one messenger type") {
 		t.Fatalf("ambiguous messenger error = %v", err)
 	}
@@ -137,7 +149,7 @@ func TestCoreRejectsDuplicateAndInvalidCollectorConfiguration(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := core.NewCore(core.Config{Collectors: test.collectors}, core.Params{Clock: clock.New()})
+			_, err := core.NewCore(core.Config{Collectors: test.collectors}, core.Params{Clock: clock.New(), Logger: testLogger})
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want text %q", err, test.want)
 			}

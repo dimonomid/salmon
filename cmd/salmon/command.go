@@ -1,20 +1,30 @@
 package main
 
-import "github.com/spf13/cobra"
+import (
+	"github.com/spf13/cobra"
+
+	"github.com/dimonomid/salmon/logs"
+)
 
 // newRootCommand constructs the Salmon command-line interface.
 func newRootCommand() *cobra.Command {
 	var configFilename string
+	var logLevel string
 	root := &cobra.Command{
 		Use:          "salmon",
 		Short:        "Monitor system health and publish its status",
 		SilenceUsage: true,
 		Args:         cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			return runSalmon(configFilename)
+			minLogLevel, err := logs.ParseLogLevel(logLevel)
+			if err != nil {
+				return err
+			}
+			return runSalmon(configFilename, minLogLevel)
 		},
 	}
 	root.PersistentFlags().StringVar(&configFilename, "config", defaultSalmonConfig, "Config filename")
+	root.Flags().StringVar(&logLevel, "log-level", "info", "Minimum log level (debug, info, warning, or error)")
 
 	configCommand := &cobra.Command{Use: "config", Short: "Manage configuration"}
 	configCommand.AddCommand(&cobra.Command{

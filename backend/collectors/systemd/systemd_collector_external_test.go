@@ -5,10 +5,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/benbjohnson/clock"
+
 	"github.com/dimonomid/salmon"
 	"github.com/dimonomid/salmon/backend/collectors"
 	"github.com/dimonomid/salmon/backend/collectors/systemd"
+	"github.com/dimonomid/salmon/logs"
 )
+
+var testLogger = logs.NewLogger(logs.LoggerParams{Clock: clock.New()})
 
 type controlledProvider struct {
 	updates chan<- *systemd.UnitUpdate
@@ -24,7 +29,7 @@ func TestCollectorAppliesOrderedRulesAndReportsRemovedUnits(t *testing.T) {
 	updates := make(chan *collectors.Update, 4)
 	var provider *controlledProvider
 	collector, err := systemd.NewCollector(systemd.CollectorParams{
-		Common: collectors.Params{ID: "services", UpdatesChan: updates},
+		Common: collectors.Params{ID: "services", Logger: testLogger, UpdatesChan: updates},
 		Config: systemd.Config{UnitRules: []systemd.ConfigUnitRule{
 			{
 				Names:      []string{"important.service", "another-important.service"},
@@ -83,7 +88,7 @@ func TestCollectorForwardsProviderErrors(t *testing.T) {
 	updates := make(chan *collectors.Update, 1)
 	var provider *controlledProvider
 	collector, err := systemd.NewCollector(systemd.CollectorParams{
-		Common: collectors.Params{ID: "services", UpdatesChan: updates},
+		Common: collectors.Params{ID: "services", Logger: testLogger, UpdatesChan: updates},
 		ProviderFactory: func(params systemd.ProviderParams) (systemd.Provider, error) {
 			provider = &controlledProvider{updates: params.UnitUpdatesChan, closed: make(chan struct{})}
 			return provider, nil
@@ -105,7 +110,7 @@ func TestCollectorDefaultsUnmatchedConditionToError(t *testing.T) {
 	updates := make(chan *collectors.Update, 1)
 	var provider *controlledProvider
 	collector, err := systemd.NewCollector(systemd.CollectorParams{
-		Common: collectors.Params{ID: "services", UpdatesChan: updates},
+		Common: collectors.Params{ID: "services", Logger: testLogger, UpdatesChan: updates},
 		Config: systemd.Config{UnitRules: []systemd.ConfigUnitRule{{
 			Names:      []string{"unmatched.service"},
 			Conditions: []systemd.ConfigCondition{{State: "active", Result: salmon.ItemStateOK}},
@@ -131,7 +136,7 @@ func TestCollectorDefaultsUnmatchedConditionToError(t *testing.T) {
 func TestCollectorRejectsInvalidResultsBeforeStartingProvider(t *testing.T) {
 	providerCalled := false
 	_, err := systemd.NewCollector(systemd.CollectorParams{
-		Common: collectors.Params{ID: "services", UpdatesChan: make(chan *collectors.Update)},
+		Common: collectors.Params{ID: "services", Logger: testLogger, UpdatesChan: make(chan *collectors.Update)},
 		Config: systemd.Config{UnitRules: []systemd.ConfigUnitRule{{
 			Type: "service", Conditions: []systemd.ConfigCondition{{Result: "banana"}},
 		}}},
@@ -161,7 +166,7 @@ func TestCollectorRejectsInvalidNamesBeforeStartingProvider(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			providerCalled := false
 			_, err := systemd.NewCollector(systemd.CollectorParams{
-				Common: collectors.Params{ID: "services", UpdatesChan: make(chan *collectors.Update)},
+				Common: collectors.Params{ID: "services", Logger: testLogger, UpdatesChan: make(chan *collectors.Update)},
 				Config: systemd.Config{UnitRules: []systemd.ConfigUnitRule{{
 					Names:      test.names,
 					Conditions: []systemd.ConfigCondition{{Result: salmon.ItemStateOK}},
@@ -184,7 +189,7 @@ func TestCollectorRejectsInvalidNamesBeforeStartingProvider(t *testing.T) {
 func TestCollectorReturnsProviderStartupError(t *testing.T) {
 	want := errors.New("no system bus")
 	_, err := systemd.NewCollector(systemd.CollectorParams{
-		Common: collectors.Params{ID: "services", UpdatesChan: make(chan *collectors.Update)},
+		Common: collectors.Params{ID: "services", Logger: testLogger, UpdatesChan: make(chan *collectors.Update)},
 		ProviderFactory: func(params systemd.ProviderParams) (systemd.Provider, error) {
 			return nil, want
 		},
@@ -200,7 +205,7 @@ func TestCollectorCloseCompletesWhileCoreOutputIsBlocked(t *testing.T) {
 	coreUpdates := make(chan *collectors.Update)
 	var provider *controlledProvider
 	collector, err := systemd.NewCollector(systemd.CollectorParams{
-		Common: collectors.Params{ID: "services", UpdatesChan: coreUpdates},
+		Common: collectors.Params{ID: "services", Logger: testLogger, UpdatesChan: coreUpdates},
 		Config: systemd.Config{UnitRules: []systemd.ConfigUnitRule{{
 			Type: "service", Conditions: []systemd.ConfigCondition{{Result: salmon.ItemStateError}},
 		}}},

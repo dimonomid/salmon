@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/dimonomid/salmon/internal/setup"
+	"github.com/dimonomid/salmon/logs"
 )
 
 func TestConfigInitCreatesConfigWithoutOverwritingIt(t *testing.T) {
@@ -67,6 +68,20 @@ func TestRunnableCommandsRejectPositionalArguments(t *testing.T) {
 	}
 }
 
+func TestLogLevelFlagDefaultsToInfoAndRejectsInvalidValues(t *testing.T) {
+	command := newRootCommand()
+	flag := command.Flags().Lookup("log-level")
+	if flag == nil || flag.DefValue != "info" {
+		t.Fatalf("log-level flag = %#v, want default info", flag)
+	}
+	command.SetOut(&bytes.Buffer{})
+	command.SetErr(&bytes.Buffer{})
+	command.SetArgs([]string{"--log-level", "verbose"})
+	if err := command.Execute(); err == nil || !strings.Contains(err.Error(), "invalid log level") {
+		t.Fatalf("error = %v, want invalid-log-level error", err)
+	}
+}
+
 func TestSalmonServiceTemplateIncludesExecutableAndConfig(t *testing.T) {
 	unit, err := setup.RenderSystemdUnitTemplate("salmon.service.tpl", string(mustSetupAsset("assets/setup/salmon.service.tpl")), struct {
 		Executable     string
@@ -97,7 +112,7 @@ func TestSalmonServiceTemplateEscapesSystemdSpecifiers(t *testing.T) {
 
 func TestRunSalmonSuggestsSetupWhenConfigIsMissing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "missing.yml")
-	err := runSalmon(path)
+	err := runSalmon(path, logs.Info)
 	if err == nil || strings.Contains(err.Error(), "setup") {
 		t.Fatalf("runSalmon() error = %v, want no setup guidance for custom config", err)
 	}

@@ -259,6 +259,7 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 		StatePath:      t.TempDir() + "/state.json",
 		Notifications:  notifications,
 		Clock:          clock.New(),
+		Logger:         watchTestLogger,
 		ReconnectDelay: time.Millisecond,
 	})
 	if err != nil {
@@ -422,7 +423,7 @@ func TestCoreCombinesTwoSalmonServers(t *testing.T) {
 
 func TestConnectedEventClearsPreviousHeartbeat(t *testing.T) {
 	previousHeartbeat := time.Now().Add(-2 * time.Hour)
-	statusWebserver := newStatusWebserver(statusWebserverParams{})
+	statusWebserver := newStatusWebserver(statusWebserverParams{Logger: watchTestLogger})
 	core := &salmonWatchCore{
 		statusWebserver: statusWebserver,
 		serverStatuses: map[string]serverStatus{
@@ -468,6 +469,7 @@ func TestCoreSnoozedIncidentDoesNotNotify(t *testing.T) {
 		StatePath:      t.TempDir() + "/state.json",
 		Notifications:  notifications,
 		Clock:          clock.New(),
+		Logger:         watchTestLogger,
 		ReconnectDelay: time.Millisecond,
 	})
 	if err != nil {
@@ -562,6 +564,7 @@ func TestCoreSnoozeExpirationPublishesUpdate(t *testing.T) {
 		Config:              wsclient.Config{Servers: []wsclient.ConfigServer{{ID: "server", Addr: salmonServer.address()}}},
 		StatePath:           t.TempDir() + "/state.json",
 		Clock:               mockClock,
+		Logger:              watchTestLogger,
 		SnoozeCheckInterval: time.Minute,
 		ReconnectDelay:      time.Millisecond,
 	})
@@ -617,6 +620,7 @@ func TestCoreCloseIsIdempotent(t *testing.T) {
 		Config:         wsclient.Config{Servers: []wsclient.ConfigServer{{ID: "server", Addr: salmonServer.address()}}},
 		StatePath:      t.TempDir() + "/state.json",
 		Clock:          clock.New(),
+		Logger:         watchTestLogger,
 		ReconnectDelay: time.Millisecond,
 	})
 	if err != nil {
@@ -651,6 +655,7 @@ func TestStatusWebSocketReconnectReceivesLatestSnapshot(t *testing.T) {
 		Config:         wsclient.Config{Servers: []wsclient.ConfigServer{{ID: "server", Addr: salmonServer.address()}}},
 		StatePath:      t.TempDir() + "/state.json",
 		Clock:          clock.New(),
+		Logger:         watchTestLogger,
 		ReconnectDelay: time.Millisecond,
 	})
 	if err != nil {

@@ -3,12 +3,12 @@ package webserver
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"github.com/juju/errors"
 
 	"github.com/dimonomid/salmon/interror"
+	"github.com/dimonomid/salmon/logs"
 )
 
 var (
@@ -26,6 +26,7 @@ type errorResponse struct {
 }
 
 func makeAPIHandlerWWriter(
+	logger *logs.Logger,
 	f func(w http.ResponseWriter, r *http.Request) (resp interface{}, err error),
 ) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -37,13 +38,13 @@ func makeAPIHandlerWWriter(
 			return
 		}
 
-		handleAPIRespErr(w, r, resp, err)
+		handleAPIRespErr(logger, w, r, resp, err)
 	}
 }
 
-func handleAPIRespErr(w http.ResponseWriter, r *http.Request, resp interface{}, err error) {
+func handleAPIRespErr(logger *logs.Logger, w http.ResponseWriter, r *http.Request, resp interface{}, err error) {
 	if err != nil {
-		respondWithError(w, r, errors.Trace(err))
+		respondWithError(logger, w, r, errors.Trace(err))
 		return
 	}
 
@@ -54,7 +55,7 @@ func handleAPIRespErr(w http.ResponseWriter, r *http.Request, resp interface{}, 
 		d, err = json.Marshal(resp)
 	}
 	if err != nil {
-		respondWithError(w, r, makeInternalServerError(
+		respondWithError(logger, w, r, makeInternalServerError(
 			errors.Annotatef(err, "marshalling resp"),
 		))
 	}
@@ -85,13 +86,13 @@ func getHTTPErrorCode(err error) int {
 	return status
 }
 
-func respondWithError(w http.ResponseWriter, r *http.Request, errResp error) {
+func respondWithError(logger *logs.Logger, w http.ResponseWriter, r *http.Request, errResp error) {
 	errStruct := getErrorStruct(errResp)
 
 	desiredContentType := "text/html"
 
 	if errors.Cause(errResp) == internalServerError {
-		fmt.Println("INTERNAL SERVER ERROR:\n" + interror.ErrorStack(errResp))
+		logger.Log(logs.Error, "Internal HTTP server error: %s", interror.ErrorStack(errResp))
 	}
 
 	v := r.Context().Value(desiredContentTypeKey)

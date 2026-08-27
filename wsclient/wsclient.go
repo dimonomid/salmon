@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/dimonomid/salmon"
+	"github.com/dimonomid/salmon/logs"
 
 	"github.com/gorilla/websocket"
 )
@@ -37,6 +38,7 @@ type WSClient struct {
 
 type Params struct {
 	Config ConfigServer
+	Logger *logs.Logger
 
 	OngoingIncidentsCh chan<- *salmon.Notification
 	ConnErrorCh        chan<- string
@@ -62,6 +64,10 @@ type ConnectionEvent struct {
 }
 
 func New(params Params) (*WSClient, error) {
+	if params.Logger == nil {
+		panic("Logger is required")
+	}
+	params.Logger = params.Logger.WithNamespaceAppended("WSClient")
 	c := &WSClient{
 		params:    params,
 		interrupt: make(chan struct{}),
@@ -113,18 +119,18 @@ mainLoop:
 
 		ustr := u.String()
 
-		fmt.Println("Connecting to", ustr)
+		c.params.Logger.Log(logs.Info, "Connecting to %s (%s)", c.params.Config.ID, ustr)
 		conn, _, err := websocket.DefaultDialer.Dial(ustr, nil)
 		if err != nil {
 			connError = err.Error()
 			if !c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindDisconnected, Time: time.Now()}) {
 				return
 			}
-			fmt.Println("Connection error:", err)
+			c.params.Logger.Log(logs.Warning, "Failed to connect to %s (%s): %s", c.params.Config.ID, ustr, err)
 			continue mainLoop
 		}
 
-		fmt.Println("Connected")
+		c.params.Logger.Log(logs.Info, "Connected to %s (%s)", c.params.Config.ID, ustr)
 		if !c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindConnected, Time: time.Now()}) {
 			_ = conn.Close()
 			return
@@ -160,7 +166,7 @@ mainLoop:
 			disconnectWithError := func(err error) {
 				connError = err.Error()
 				c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindDisconnected, Time: time.Now()})
-				fmt.Println("Server message error:", err)
+				c.params.Logger.Log(logs.Error, "Invalid message from %s: %s", c.params.Config.ID, err)
 				_ = conn.Close()
 			}
 			for {
@@ -168,7 +174,12 @@ mainLoop:
 				if err != nil {
 					connError = err.Error()
 					c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindDisconnected, Time: time.Now()})
-					fmt.Println("Read error:", err)
+					select {
+					case <-c.interrupt:
+						c.params.Logger.Log(logs.Debug, "Connection to %s closed", c.params.Config.ID)
+					default:
+						c.params.Logger.Log(logs.Warning, "Connection to %s was lost: %s", c.params.Config.ID, err)
+					}
 					return
 				}
 
@@ -182,11 +193,9 @@ mainLoop:
 					if !c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindHeartbeat, Time: time.Now()}) {
 						return
 					}
-					fmt.Println(c.params.Config.ID, "heartbeat")
+					c.params.Logger.Log(logs.Debug, "Received heartbeat from %s", c.params.Config.ID)
 					continue
 				}
-
-				fmt.Println("Recv:", string(message))
 
 				var msgServer wsMsgServer
 				if err := json.Unmarshal(message, &msgServer); err != nil {
@@ -206,11 +215,24 @@ mainLoop:
 						disconnectWithError(fmt.Errorf("decoding %s data: notification is null", msgServer.Event))
 						return
 					}
+					updateKind := "update"
+					if msgServer.Event == "OngoingIncidentsSnapshot" {
+						updateKind = "snapshot"
+					}
+					total, err := json.Marshal(notif.OngoingIncidents.Total)
+					if err != nil {
+						c.params.Logger.Log(logs.Error, "Failed to format incident %s from %s for logging: %s",
+							updateKind, c.params.Config.ID, err)
+					} else {
+						c.params.Logger.Log(logs.Info, "Received incident %s from %s; ongoing incidents: %s",
+							updateKind, c.params.Config.ID, total)
+					}
 
 					if !c.sendOngoingIncidents(notif) {
 						return
 					}
-
+				default:
+					c.params.Logger.Log(logs.Warning, "Ignoring unsupported event %q from %s", msgServer.Event, c.params.Config.ID)
 				}
 			}
 		}()
@@ -224,7 +246,7 @@ mainLoop:
 				continue mainLoop
 
 			case <-c.interrupt:
-				fmt.Println("Closing connection")
+				c.params.Logger.Log(logs.Debug, "Closing connection to %s", c.params.Config.ID)
 				readTimer.Stop()
 				_ = conn.Close()
 				return
@@ -243,10 +265,10 @@ func (c *WSClient) sendOngoingIncidents(notif *salmon.Notification) bool {
 	}
 
 	started := time.Now()
-	fmt.Printf("non-blocking incident send for server %q did not complete; sending blocking\n", c.params.Config.ID)
+	c.params.Logger.Log(logs.Warning, "Incident delivery from %s is blocked; waiting for the consumer", c.params.Config.ID)
 	select {
 	case c.params.OngoingIncidentsCh <- notif:
-		fmt.Printf("blocking incident send for server %q completed after %s\n", c.params.Config.ID, time.Since(started))
+		c.params.Logger.Log(logs.Warning, "Incident delivery from %s resumed after %s", c.params.Config.ID, time.Since(started))
 		return true
 	case <-c.interrupt:
 		return false
@@ -266,10 +288,10 @@ func (c *WSClient) sendConnectionEvent(event ConnectionEvent) bool {
 	}
 
 	started := time.Now()
-	fmt.Printf("non-blocking %s connection event send for server %q did not complete; sending blocking\n", event.EventKind, c.params.Config.ID)
+	c.params.Logger.Log(logs.Warning, "%s event delivery from %s is blocked; waiting for the consumer", event.EventKind, c.params.Config.ID)
 	select {
 	case c.params.ConnectionEventCh <- event:
-		fmt.Printf("blocking %s connection event send for server %q completed after %s\n", event.EventKind, c.params.Config.ID, time.Since(started))
+		c.params.Logger.Log(logs.Warning, "%s event delivery from %s resumed after %s", event.EventKind, c.params.Config.ID, time.Since(started))
 		return true
 	case <-c.interrupt:
 		return false

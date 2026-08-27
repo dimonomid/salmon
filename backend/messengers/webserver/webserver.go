@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
 	"sync"
 
 	"github.com/dimonomid/salmon"
 	"github.com/dimonomid/salmon/backend/messengers"
+	"github.com/dimonomid/salmon/logs"
 
 	"github.com/juju/errors"
 	"goji.io"
@@ -45,6 +45,10 @@ type websocketSubscription struct {
 const websocketSubscriptionQueueSize = 64
 
 func New(params Params) (*Webserver, error) {
+	if params.Common.Logger == nil {
+		panic("Logger is required")
+	}
+	params.Common.Logger = params.Common.Logger.WithNamespaceAppended("Webserver")
 	if params.Config.ListenAddress == "" {
 		return nil, errors.Errorf("listen address can't be empty")
 	}
@@ -77,7 +81,7 @@ func New(params Params) (*Webserver, error) {
 	go s.serve()
 	go s.run()
 
-	fmt.Println("Webserver is listening on", listener.Addr())
+	params.Common.Logger.Log(logs.Info, "Listening on %s", listener.Addr())
 
 	return s, nil
 }
@@ -110,7 +114,7 @@ func (s *Webserver) run() {
 			default:
 			}
 			if !sendNotificationToSubscriber(sub.ch, notif) {
-				fmt.Fprintf(os.Stderr, "WebSocket subscriber %d notification queue is full; disconnecting slow client\n", sub.id)
+				s.params.Common.Logger.Log(logs.Warning, "Disconnecting WebSocket subscriber %d because its notification queue is full", sub.id)
 				// Close the connection immediately instead of draining its stale
 				// backlog. If the client reconnects, it receives a fresh snapshot.
 				s.unsubscribe(sub.id)
@@ -141,8 +145,8 @@ func (s *Webserver) createHandler() (http.Handler, error) {
 	rRoot.Handle(pat.New("/api/v1/*"), rAPI)
 	{
 		rAPI.Use(makeDesiredContentTypeMiddleware("application/json"))
-		rAPI.HandleFunc(pat.Get("/status"), makeAPIHandlerWWriter(s.status))
-		rAPI.HandleFunc(pat.Get("/wsconnect"), makeAPIHandlerWWriter(s.wsConnect))
+		rAPI.HandleFunc(pat.Get("/status"), makeAPIHandlerWWriter(s.params.Common.Logger, s.status))
+		rAPI.HandleFunc(pat.Get("/wsconnect"), makeAPIHandlerWWriter(s.params.Common.Logger, s.wsConnect))
 	}
 
 	return rRoot, nil
@@ -156,12 +160,12 @@ func (s *Webserver) status(w http.ResponseWriter, r *http.Request) (resp interfa
 
 func (s *Webserver) subscribe(conn *wsConn) (subID int, ch chan *salmon.Notification, ok bool) {
 	s.subsMtx.Lock()
-	defer s.subsMtx.Unlock()
 
 	// Shutdown marks closing while holding this same mutex before taking its
 	// snapshot of active connections. Rejecting registration here ensures a
 	// connection cannot be upgraded concurrently and escape that snapshot.
 	if s.closing {
+		s.subsMtx.Unlock()
 		return 0, nil, false
 	}
 
@@ -171,8 +175,17 @@ func (s *Webserver) subscribe(conn *wsConn) (subID int, ch chan *salmon.Notifica
 	ch = make(chan *salmon.Notification, websocketSubscriptionQueueSize)
 	s.subs[subID] = ch
 	s.wsConns[subID] = conn
+	s.params.Common.Logger.Log(logs.Info, "WebSocket client %d connected from %s", subID, websocketRemoteAddress(conn))
+	s.subsMtx.Unlock()
 
 	return subID, ch, true
+}
+
+func websocketRemoteAddress(conn *wsConn) string {
+	if conn == nil || conn.conn == nil || conn.conn.RemoteAddr() == nil {
+		return "unknown address"
+	}
+	return conn.conn.RemoteAddr().String()
 }
 
 // unsubscribe removes a websocket connection from notification fan-out and
@@ -192,10 +205,12 @@ func (s *Webserver) unsubscribe(subID int) {
 	}
 	s.subsMtx.Unlock()
 	if exists {
+		remoteAddress := websocketRemoteAddress(conn)
 		conn.ctxCancel()
 		if conn.conn != nil {
 			_ = conn.conn.Close()
 		}
+		s.params.Common.Logger.Log(logs.Info, "WebSocket client %d disconnected from %s", subID, remoteAddress)
 	}
 }
 

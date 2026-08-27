@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"os"
 	"sync"
@@ -11,21 +10,22 @@ import (
 	"github.com/benbjohnson/clock"
 
 	"github.com/dimonomid/salmon"
+	"github.com/dimonomid/salmon/logs"
 )
 
 // snoozeDurations are the durations accepted by the status UI and API.
 // There is intentionally no permanent snooze: incidents that should be ignored
 // forever belong in the Salmon configuration instead.
 var snoozeDurations = map[string]time.Duration{
-	"15m":     15 * time.Minute,
-	"30m":     30 * time.Minute,
-	"1h":      time.Hour,
-	"4h":      4 * time.Hour,
-	"6h":      6 * time.Hour,
-	"12h":     12 * time.Hour,
-	"1d":      24 * time.Hour,
-	"2d":      2 * 24 * time.Hour,
-	"7d":      7 * 24 * time.Hour,
+	"15m": 15 * time.Minute,
+	"30m": 30 * time.Minute,
+	"1h":  time.Hour,
+	"4h":  4 * time.Hour,
+	"6h":  6 * time.Hour,
+	"12h": 12 * time.Hour,
+	"1d":  24 * time.Hour,
+	"2d":  2 * 24 * time.Hour,
+	"7d":  7 * 24 * time.Hour,
 }
 
 // snoozeEntry is the on-disk representation of one incident's snooze expiry.
@@ -84,6 +84,7 @@ type incidentState struct {
 	// snoozes stores persisted snooze decisions and their expiration times.
 	snoozes   *snoozeState
 	clock     clock.Clock
+	logger    *logs.Logger
 	stop      chan struct{}
 	done      chan struct{}
 	closeOnce sync.Once
@@ -95,13 +96,16 @@ type incidentState struct {
 
 // newIncidentState loads the persisted snoozes and initializes the shared
 // active-incident classifier.
-func newIncidentState(path string, clk clock.Clock) (*incidentState, error) {
-	return newIncidentStateWithInterval(path, 10*time.Second, clk)
+func newIncidentState(path string, clk clock.Clock, logger *logs.Logger) (*incidentState, error) {
+	return newIncidentStateWithInterval(path, 10*time.Second, clk, logger)
 }
 
-func newIncidentStateWithInterval(path string, expirationInterval time.Duration, clk clock.Clock) (*incidentState, error) {
+func newIncidentStateWithInterval(path string, expirationInterval time.Duration, clk clock.Clock, logger *logs.Logger) (*incidentState, error) {
 	if clk == nil {
 		panic("Clock is required")
+	}
+	if logger == nil {
+		panic("Logger is required")
 	}
 	snoozes, err := newSnoozeState(path)
 	if err != nil {
@@ -110,6 +114,7 @@ func newIncidentStateWithInterval(path string, expirationInterval time.Duration,
 	state := &incidentState{
 		snoozes: snoozes,
 		clock:   clk,
+		logger:  logger.WithNamespaceAppended("IncidentState"),
 		stop:    make(chan struct{}),
 		done:    make(chan struct{}),
 	}
@@ -165,7 +170,7 @@ func (s *incidentState) Snooze(key string, duration time.Duration) error {
 	if err := s.snoozes.Snooze(key, duration, s.clock.Now()); err != nil {
 		return err
 	}
-	fmt.Printf("Incident snoozed: key=%s duration=%s\n", key, duration)
+	s.logger.Log(logs.Info, "Snoozed incident %s for %s", key, duration)
 	s.notifyUpdate()
 	return nil
 }
@@ -176,7 +181,7 @@ func (s *incidentState) Unsnooze(key string) error {
 	if err := s.snoozes.Unsnooze(key); err != nil {
 		return err
 	}
-	fmt.Printf("Incident unsnoozed: key=%s\n", key)
+	s.logger.Log(logs.Info, "Unsnoozed incident %s", key)
 	s.notifyUpdate()
 	return nil
 }
@@ -199,11 +204,11 @@ func (s *incidentState) watchSnoozeExpirations(ticker *clock.Ticker) {
 		case <-ticker.C:
 			expired, err := s.snoozes.expire(s.clock.Now())
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "failed to expire snoozes: %s\n", err)
+				s.logger.Log(logs.Error, "Failed to expire snoozes: %s", err)
 				continue
 			}
 			for _, key := range expired {
-				fmt.Printf("Snooze expired: key=%s\n", key)
+				s.logger.Log(logs.Info, "Snooze expired for incident %s", key)
 			}
 			if len(expired) > 0 {
 				s.notifyUpdate()

@@ -1,24 +1,37 @@
 package main
 
 import (
+	"github.com/benbjohnson/clock"
 	"github.com/getlantern/systray"
 	"github.com/spf13/cobra"
+
+	"github.com/dimonomid/salmon/logs"
 )
 
 // newWatchRootCommand constructs the Salmon Watch command-line interface.
 func newWatchRootCommand() *cobra.Command {
 	var configFilename string
+	var logLevel string
 	root := &cobra.Command{
 		Use:          "salmon-watch",
 		Short:        "Show Salmon status in the desktop tray",
 		SilenceUsage: true,
 		Args:         cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
+			minLogLevel, err := logs.ParseLogLevel(logLevel)
+			if err != nil {
+				return err
+			}
 			cfg, err := loadConfig(configFilename)
 			if err != nil {
 				return watchConfigReadError(configFilename, err)
 			}
-			app := &watchApp{config: cfg}
+			clk := clock.New()
+			logger := logs.NewLogger(logs.LoggerParams{
+				Clock: clk,
+				Sinks: []logs.LoggerSinkParams{{MinLevel: minLogLevel}},
+			}).WithNamespaceAppended("SalmonWatch")
+			app := &watchApp{config: cfg, clock: clk, logger: logger}
 			// systray.Run must be the only operation that runs the tray app: it
 			// locks its OS thread before invoking onReady.
 			systray.Run(app.onReady, app.onExit)
@@ -26,6 +39,7 @@ func newWatchRootCommand() *cobra.Command {
 		},
 	}
 	root.PersistentFlags().StringVar(&configFilename, "config", defaultWatchConfigPath(), "Config filename")
+	root.Flags().StringVar(&logLevel, "log-level", "info", "Minimum log level (debug, info, warning, or error)")
 
 	configCommand := &cobra.Command{Use: "config", Short: "Manage configuration"}
 	configCommand.AddCommand(&cobra.Command{
