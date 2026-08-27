@@ -13,6 +13,9 @@ type Config struct {
 
 	// Command is a slice of strings: first one is the command, all others will be
 	// arguments. Example: []string{"bash", "-c", "(( $(df --output=avail / | sed 1d) > 1000000 ))"}
+	// The first line written to stdout is used as the item's dynamic details;
+	// when stdout is empty, the exit code is used instead. Long lines are
+	// truncated to keep command output from consuming unbounded memory.
 	Command []string `yaml:"command"`
 
 	// PollInterval is how often to run the command. Default: 1 minute.

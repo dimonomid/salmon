@@ -18,36 +18,53 @@ func TestCollectorMapsCommandResultsToItems(t *testing.T) {
 		conditions  []execcollector.ConfigCondition
 		wantState   salmon.ItemState
 		wantText    string
+		wantAbsent  []string
 	}{
 		{
-			name:      "default conditions accept exit zero",
-			command:   []string{"sh", "-c", "exit 0"},
-			wantState: salmon.ItemStateOK,
-			wantText:  "exit code: 0, applied condition #0",
+			name:       "default conditions accept exit zero",
+			command:    []string{"sh", "-c", "exit 0"},
+			wantState:  salmon.ItemStateOK,
+			wantText:   "exit code: 0",
+			wantAbsent: []string{"condition"},
 		},
 		{
-			name:      "default conditions reject nonzero exit",
-			command:   []string{"sh", "-c", "exit 9"},
-			wantState: salmon.ItemStateError,
-			wantText:  "exit code: 9, applied condition #1",
+			name:       "default conditions reject nonzero exit",
+			command:    []string{"sh", "-c", "exit 9"},
+			wantState:  salmon.ItemStateError,
+			wantText:   "exit code: 9",
+			wantAbsent: []string{"condition"},
 		},
 		{
 			name:        "matching exit code",
 			description: "probe",
-			command:     []string{"sh", "-c", "exit 7"},
+			command:     []string{"sh", "-c", "printf 'disk full\\nignored\\n'; exit 7"},
 			conditions: []execcollector.ConfigCondition{
 				{ExitCode: "0", Result: salmon.ItemStateOK},
 				{ExitCode: "7", Result: salmon.ItemStateWarning},
 			},
 			wantState: salmon.ItemStateWarning,
-			wantText:  "exit code: 7, applied condition #1",
+			wantText:  "probe: disk full",
+			wantAbsent: []string{
+				"ignored",
+				"condition",
+				"exit code",
+			},
 		},
 		{
 			name:       "unmatched exit code defaults to error",
 			command:    []string{"sh", "-c", "exit 9"},
 			conditions: []execcollector.ConfigCondition{{ExitCode: "0", Result: salmon.ItemStateOK}},
 			wantState:  salmon.ItemStateError,
-			wantText:   "did not find matching condition",
+			wantText:   "exit code: 9",
+			wantAbsent: []string{"condition"},
+		},
+		{
+			name:       "stderr is not used as details",
+			command:    []string{"sh", "-c", "printf 'stderr details\\n' >&2; exit 7"},
+			conditions: []execcollector.ConfigCondition{{Result: salmon.ItemStateError}},
+			wantState:  salmon.ItemStateError,
+			wantText:   "exit code: 7",
+			wantAbsent: []string{"stderr details", "condition"},
 		},
 		{
 			name:       "command start failure is an incident",
@@ -86,6 +103,11 @@ func TestCollectorMapsCommandResultsToItems(t *testing.T) {
 			}
 			if !strings.Contains(got.Details, test.wantText) {
 				t.Errorf("details = %q, want it to contain %q", got.Details, test.wantText)
+			}
+			for _, absent := range test.wantAbsent {
+				if strings.Contains(got.Details, absent) {
+					t.Errorf("details = %q, want it not to contain %q", got.Details, absent)
+				}
 			}
 			if test.description != "" && !strings.HasPrefix(got.Details, test.description+": ") {
 				t.Errorf("details = %q, want description prefix %q", got.Details, test.description+": ")

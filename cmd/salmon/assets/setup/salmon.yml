@@ -38,12 +38,17 @@ core:
     # filesystem. Adjust the mount point and 100 MiB threshold for your host.
     - id: root-free-space
       exec:
-        description: root filesystem must have at least 100 MiB free
+        description: Root filesystem free space
         command:
           - sh
           - -c
           - |
-            test "$(df -Pk / | awk 'NR == 2 { print $4 }')" -ge 102400
+            minimum_mib=100
+            available_mib="$(df -Pm / | awk 'NR == 2 { print $4 }')" || exit 1
+            if [ "$available_mib" -lt "$minimum_mib" ]; then
+              echo "only $available_mib MiB free on /; want at least $minimum_mib MiB."
+              exit 1
+            fi
         # With no conditions, exit code 0 is OK and every other code is an error.
 
   # Messengers publish incident updates. Multiple messengers can be used at
