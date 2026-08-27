@@ -14,7 +14,6 @@ RestartSec=10
 
 # Hardening
 ProtectSystem=full
-PrivateTmp=true
 NoNewPrivileges=true
 
 [Install]
