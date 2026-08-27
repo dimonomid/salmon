@@ -191,13 +191,6 @@ function renderIncidentList(items, container, isSnoozed) {
 
     const controls = document.createElement("div");
     controls.className = "incident-controls";
-    if (stale) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = "Forget stale";
-      button.addEventListener("click", () => forgetIncident(item.key));
-      controls.appendChild(button);
-    }
     if (isSnoozed) {
       const button = document.createElement("button");
       button.type = "button";
@@ -205,14 +198,51 @@ function renderIncidentList(items, container, isSnoozed) {
       button.addEventListener("click", () => unsnoozeIncident(item.key));
       controls.appendChild(button);
     } else {
-      controls.appendChild(document.createTextNode(stale ? " Snooze for: " : "Snooze for: "));
+      const menu = document.createElement("div");
+      menu.className = "snooze-menu";
+
+      const menuButton = document.createElement("button");
+      menuButton.type = "button";
+      menuButton.textContent = "Snooze";
+      menuButton.setAttribute("aria-haspopup", "menu");
+      menuButton.setAttribute("aria-expanded", "false");
+      menu.appendChild(menuButton);
+
+      const options = document.createElement("div");
+      options.className = "snooze-menu-options";
+      options.hidden = true;
+      options.setAttribute("role", "menu");
+      menuButton.addEventListener("click", () => {
+        options.hidden = !options.hidden;
+        menuButton.setAttribute("aria-expanded", String(!options.hidden));
+      });
       for (const duration of snoozeDurationOptions) {
         const button = document.createElement("button");
         button.type = "button";
         button.textContent = duration;
-        button.addEventListener("click", () => snoozeIncident(item.key, duration));
-        controls.appendChild(button);
+        button.setAttribute("role", "menuitem");
+        button.addEventListener("click", () => {
+          options.hidden = true;
+          menuButton.setAttribute("aria-expanded", "false");
+          snoozeIncident(item.key, duration);
+        });
+        options.appendChild(button);
       }
+      menu.appendChild(options);
+      menu.addEventListener("focusout", (event) => {
+        if (!menu.contains(event.relatedTarget)) {
+          options.hidden = true;
+          menuButton.setAttribute("aria-expanded", "false");
+        }
+      });
+      controls.appendChild(menu);
+    }
+    if (stale) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = "Forget stale";
+      button.addEventListener("click", () => forgetIncident(item.key));
+      controls.appendChild(button);
     }
     container.appendChild(controls);
     container.appendChild(document.createElement("hr"));

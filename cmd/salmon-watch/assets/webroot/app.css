@@ -114,6 +114,36 @@ textarea {
   margin-left: 0.3em;
 }
 
+.snooze-menu {
+  display: inline-block;
+  margin-left: 0.3em;
+  position: relative;
+}
+
+.snooze-menu > button {
+  margin-left: 0;
+}
+
+.snooze-menu-options {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  display: flex;
+  gap: 0.3em;
+  left: 100%;
+  padding: 0.4em;
+  position: absolute;
+  top: 0;
+  z-index: 1;
+}
+
+.snooze-menu-options button {
+  margin-left: 0;
+}
+
+.snooze-menu-options[hidden] {
+  display: none;
+}
+
 .snoozed-list {
   background: var(--surface);
   padding: 0.5em 0.5em 0.5em 0;
