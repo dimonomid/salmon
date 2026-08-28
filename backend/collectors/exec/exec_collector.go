@@ -21,6 +21,12 @@ import (
 // for incident details. Longer lines are truncated and marked with an ellipsis.
 const maxOutputLineBytes = 200
 
+const (
+	defaultPollInterval              = time.Minute
+	defaultPollIntervalWhenUnhealthy = 5 * time.Second
+	defaultTimeoutCeiling            = time.Minute
+)
+
 // firstLineWriter retains up to maxOutputLineBytes from the first line. It
 // continues to accept all subsequent output but discards it, effectively acting
 // like /dev/null after the retained text. Draining the output prevents a
@@ -87,6 +93,7 @@ func NewCollector(params CollectorParams) (*Collector, error) {
 			{Result: salmon.ItemStateError},
 		}
 	}
+	applyConfigDefaults(&params.Config)
 	if err := validateConfig(params.Config); err != nil {
 		return nil, err
 	}
@@ -99,19 +106,24 @@ func NewCollector(params CollectorParams) (*Collector, error) {
 		cancel:   cancel,
 	}
 
-	if c.params.Config.PollInterval == 0 {
-		c.params.Config.PollInterval = 1 * time.Minute
-	}
-
-	if c.params.Config.PollIntervalWhenUnhealthy == 0 {
-		c.params.Config.PollIntervalWhenUnhealthy = 5 * time.Second
-	}
-
 	go c.run()
 
-	params.Common.Logger.Log(logs.Info, "Started; polling every %s", c.params.Config.PollInterval)
+	params.Common.Logger.Log(logs.Info, "Started; polling every %s (%s when unhealthy), command timeout %s",
+		c.params.Config.PollInterval, c.params.Config.PollIntervalWhenUnhealthy, c.params.Config.Timeout)
 
 	return c, nil
+}
+
+func applyConfigDefaults(config *Config) {
+	if config.PollInterval == 0 {
+		config.PollInterval = defaultPollInterval
+	}
+	if config.PollIntervalWhenUnhealthy == 0 {
+		config.PollIntervalWhenUnhealthy = defaultPollIntervalWhenUnhealthy
+	}
+	if config.Timeout == 0 {
+		config.Timeout = min(defaultTimeoutCeiling, config.PollInterval, config.PollIntervalWhenUnhealthy)
+	}
 }
 
 func validateConfig(config Config) error {
@@ -123,6 +135,16 @@ func validateConfig(config Config) error {
 	}
 	if config.PollIntervalWhenUnhealthy < 0 {
 		return fmt.Errorf("pollIntervalWhenUnhealthy must not be negative")
+	}
+	if config.Timeout < 0 {
+		return fmt.Errorf("timeout must not be negative")
+	}
+	if config.Timeout > config.PollInterval {
+		return fmt.Errorf("timeout %s must not exceed pollInterval %s", config.Timeout, config.PollInterval)
+	}
+	if config.Timeout > config.PollIntervalWhenUnhealthy {
+		return fmt.Errorf("timeout %s must not exceed pollIntervalWhenUnhealthy %s",
+			config.Timeout, config.PollIntervalWhenUnhealthy)
 	}
 	if len(config.Conditions) == 0 {
 		return fmt.Errorf("conditions must not be empty")
@@ -213,7 +235,9 @@ func (c *Collector) runCommand() *salmon.Item {
 		Details: c.params.Config.Description,
 	}
 
-	cmd := exec.CommandContext(c.ctx, c.params.Config.Command[0], c.params.Config.Command[1:]...)
+	commandCtx, cancel := context.WithTimeout(c.ctx, c.params.Config.Timeout)
+	defer cancel()
+	cmd := exec.CommandContext(commandCtx, c.params.Config.Command[0], c.params.Config.Command[1:]...)
 	var stdout firstLineWriter
 	// Capture stdout through a pipe instead of cmd.Output or assigning stdout
 	// directly to firstLineWriter. The pipe lets us drain output concurrently,
@@ -238,20 +262,22 @@ func (c *Collector) runCommand() *salmon.Item {
 
 	// StdoutPipe must be fully drained before Wait: Wait closes the pipe and can
 	// otherwise discard output that the reader has not consumed yet. On
-	// cancellation we close it ourselves, because a descendant may have inherited
-	// stdout and could keep the reader waiting for EOF after the command is killed.
-	//
-	// TODO: add a configurable command timeout. Close cancels an active command,
-	// but during normal operation a stuck command prevents this collector from
-	// producing further updates or reporting that the check itself is stuck.
+	// cancellation or timeout we close it ourselves, because a descendant may
+	// have inherited stdout and could keep the reader waiting for EOF after the
+	// command is killed.
 	select {
 	case <-stdoutDone:
-	case <-c.ctx.Done():
+	case <-commandCtx.Done():
 		_ = stdoutPipe.Close()
 		<-stdoutDone
 	}
 	err = cmd.Wait()
 	if err != nil {
+		if commandCtx.Err() == context.DeadlineExceeded {
+			ret.State = salmon.ItemStateError
+			ret.Details = appendDetails(ret.Details, fmt.Sprintf("Command timed out after %s", c.params.Config.Timeout))
+			return ret
+		}
 		if c.ctx.Err() != nil {
 			ret.State = salmon.ItemStateError
 			ret.Details = appendDetails(ret.Details, "command was canceled: "+c.ctx.Err().Error())

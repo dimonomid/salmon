@@ -140,6 +140,87 @@ func TestCollectorRejectsExplicitlyEmptyConditions(t *testing.T) {
 	}
 }
 
+func TestCollectorRejectsInvalidTimeout(t *testing.T) {
+	tests := []struct {
+		name      string
+		config    execcollector.Config
+		wantError string
+	}{
+		{
+			name: "negative timeout",
+			config: execcollector.Config{
+				Timeout: -time.Second,
+			},
+			wantError: "timeout must not be negative",
+		},
+		{
+			name: "timeout exceeds normal interval",
+			config: execcollector.Config{
+				PollInterval:              10 * time.Millisecond,
+				PollIntervalWhenUnhealthy: 30 * time.Millisecond,
+				Timeout:                   20 * time.Millisecond,
+			},
+			wantError: "must not exceed pollInterval",
+		},
+		{
+			name: "timeout exceeds unhealthy interval",
+			config: execcollector.Config{
+				PollInterval:              30 * time.Millisecond,
+				PollIntervalWhenUnhealthy: 10 * time.Millisecond,
+				Timeout:                   20 * time.Millisecond,
+			},
+			wantError: "must not exceed pollIntervalWhenUnhealthy",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			test.config.Command = []string{"true"}
+			collector, err := execcollector.NewCollector(execcollector.CollectorParams{
+				Common: collectors.Params{ID: "check", Logger: testLogger, UpdatesChan: make(chan *collectors.Update)},
+				Config: test.config,
+			})
+			if collector != nil {
+				collector.Close()
+			}
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("error = %v, want it to contain %q", err, test.wantError)
+			}
+		})
+	}
+}
+
+func TestCollectorReportsTimeoutAndContinuesPolling(t *testing.T) {
+	marker := t.TempDir() + "/first-attempt"
+	updates := make(chan *collectors.Update, 2)
+	collector, err := execcollector.NewCollector(execcollector.CollectorParams{
+		Common: collectors.Params{ID: "check", Logger: testLogger, UpdatesChan: updates},
+		Config: execcollector.Config{
+			Command: []string{
+				"sh", "-c",
+				`if [ -e "$1" ]; then exit 0; fi; : > "$1"; exec sleep 30`,
+				"sh", marker,
+			},
+			PollInterval:              time.Hour,
+			PollIntervalWhenUnhealthy: 80 * time.Millisecond,
+			Timeout:                   40 * time.Millisecond,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(collector.Close)
+
+	first := receiveUpdate(t, updates).Items["check.exec_result"]
+	if first == nil || first.State != salmon.ItemStateError || !strings.Contains(first.Details, "Command timed out after 40ms") {
+		t.Fatalf("first result = %#v, want timeout error", first)
+	}
+	second := receiveUpdate(t, updates).Items["check.exec_result"]
+	if second == nil || second.State != salmon.ItemStateOK {
+		t.Fatalf("second result = %#v, want recovered OK result", second)
+	}
+}
+
 func TestCollectorCloseCancelsAStuckCommand(t *testing.T) {
 	updates := make(chan *collectors.Update)
 	collector, err := execcollector.NewCollector(execcollector.CollectorParams{

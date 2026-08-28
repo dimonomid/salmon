@@ -23,6 +23,11 @@ type Config struct {
 
 	PollIntervalWhenUnhealthy time.Duration `yaml:"pollIntervalWhenUnhealthy"`
 
+	// Timeout limits one command execution. When omitted, it defaults to the
+	// shortest of one minute, PollInterval, and PollIntervalWhenUnhealthy. An
+	// explicit timeout must not exceed either polling interval.
+	Timeout time.Duration `yaml:"timeout"`
+
 	// Conditions contains the conditions to check. When omitted, exit code 0 is
 	// OK and every other exit code is an error. If configured conditions do not
 	// match, a salmon.ItemStateError is assumed. An explicit empty list is invalid.
