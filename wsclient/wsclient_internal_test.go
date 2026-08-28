@@ -15,17 +15,17 @@ var testLoggerInternal = logs.NewLogger(logs.LoggerParams{Clock: clock.New()})
 func TestSendOngoingIncidentsWaitsForCapacity(t *testing.T) {
 	first := &salmon.Notification{}
 	second := &salmon.Notification{}
-	notifications := make(chan *salmon.Notification, 1)
-	notifications <- first
+	events := make(chan ServerEvent, 1)
+	events <- ServerEvent{Kind: ServerEventKindOngoingIncidents, OngoingIncidents: first}
 	client := &WSClient{
-		params:    Params{Config: ConfigServer{ID: "test"}, Logger: testLoggerInternal, OngoingIncidentsCh: notifications},
+		params:    Params{Config: ConfigServer{ID: "test"}, Logger: testLoggerInternal, EventCh: events},
 		interrupt: make(chan struct{}),
 	}
 	result := make(chan bool, 1)
 	go func() { result <- client.sendOngoingIncidents(second) }()
 
-	if got := <-notifications; got != first {
-		t.Fatalf("first notification = %p, want %p", got, first)
+	if got := <-events; got.OngoingIncidents != first {
+		t.Fatalf("first notification = %p, want %p", got.OngoingIncidents, first)
 	}
 	select {
 	case sent := <-result:
@@ -35,16 +35,16 @@ func TestSendOngoingIncidentsWaitsForCapacity(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("blocking incident send did not complete after capacity became available")
 	}
-	if got := <-notifications; got != second {
-		t.Fatalf("second notification = %p, want %p", got, second)
+	if got := <-events; got.OngoingIncidents != second {
+		t.Fatalf("second notification = %p, want %p", got.OngoingIncidents, second)
 	}
 }
 
 func TestSendOngoingIncidentsUnblocksWhenInterrupted(t *testing.T) {
-	notifications := make(chan *salmon.Notification, 1)
-	notifications <- &salmon.Notification{}
+	events := make(chan ServerEvent, 1)
+	events <- ServerEvent{Kind: ServerEventKindOngoingIncidents, OngoingIncidents: &salmon.Notification{}}
 	client := &WSClient{
-		params:    Params{Config: ConfigServer{ID: "test"}, Logger: testLoggerInternal, OngoingIncidentsCh: notifications},
+		params:    Params{Config: ConfigServer{ID: "test"}, Logger: testLoggerInternal, EventCh: events},
 		interrupt: make(chan struct{}),
 	}
 	result := make(chan bool, 1)
@@ -64,17 +64,17 @@ func TestSendOngoingIncidentsUnblocksWhenInterrupted(t *testing.T) {
 func TestSendConnectionEventWaitsForCapacity(t *testing.T) {
 	first := ConnectionEvent{EventKind: EventKindConnected}
 	second := ConnectionEvent{EventKind: EventKindDisconnected}
-	events := make(chan ConnectionEvent, 1)
-	events <- first
+	events := make(chan ServerEvent, 1)
+	events <- ServerEvent{Kind: ServerEventKindConnection, Connection: first}
 	client := &WSClient{
-		params:    Params{Config: ConfigServer{ID: "test"}, Logger: testLoggerInternal, ConnectionEventCh: events},
+		params:    Params{Config: ConfigServer{ID: "test"}, Logger: testLoggerInternal, EventCh: events},
 		interrupt: make(chan struct{}),
 	}
 	result := make(chan bool, 1)
 	go func() { result <- client.sendConnectionEvent(second) }()
 
-	if got := <-events; got != first {
-		t.Fatalf("first connection event = %#v, want %#v", got, first)
+	if got := <-events; got.Connection != first {
+		t.Fatalf("first connection event = %#v, want %#v", got.Connection, first)
 	}
 	select {
 	case sent := <-result:
@@ -84,16 +84,16 @@ func TestSendConnectionEventWaitsForCapacity(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("blocking connection event send did not complete after capacity became available")
 	}
-	if got := <-events; got != second {
-		t.Fatalf("second connection event = %#v, want %#v", got, second)
+	if got := <-events; got.Connection != second {
+		t.Fatalf("second connection event = %#v, want %#v", got.Connection, second)
 	}
 }
 
 func TestSendConnectionEventUnblocksWhenInterrupted(t *testing.T) {
-	events := make(chan ConnectionEvent, 1)
-	events <- ConnectionEvent{EventKind: EventKindConnected}
+	events := make(chan ServerEvent, 1)
+	events <- ServerEvent{Kind: ServerEventKindConnection, Connection: ConnectionEvent{EventKind: EventKindConnected}}
 	client := &WSClient{
-		params:    Params{Config: ConfigServer{ID: "test"}, Logger: testLoggerInternal, ConnectionEventCh: events},
+		params:    Params{Config: ConfigServer{ID: "test"}, Logger: testLoggerInternal, EventCh: events},
 		interrupt: make(chan struct{}),
 	}
 	result := make(chan bool, 1)

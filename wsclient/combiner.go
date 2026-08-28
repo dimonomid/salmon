@@ -73,9 +73,7 @@ func NewCombiner(params CombinerParams) (*Combiner, error) {
 	})
 
 	for i, cfg := range c.params.Config.Servers {
-		ongoingIncidentsCh := make(chan *salmon.Notification, 32)
-		connErrorCh := make(chan string, 32)
-		connectionEventCh := make(chan ConnectionEvent, 32)
+		serverEventCh := make(chan ServerEvent, 32)
 
 		command, err := TunnelCommand(cfg)
 		if err != nil {
@@ -83,26 +81,23 @@ func NewCombiner(params CombinerParams) (*Combiner, error) {
 			return nil, errors.Annotatef(err, "creating tunnel command #%d (%s)", i, cfg.ID)
 		}
 		var tunnel *TunnelSupervisor
-		var tunnelEvents <-chan TunnelEvent
 		if command != nil {
 			tunnel = NewTunnelSupervisor(TunnelSupervisorParams{
 				ServerID: cfg.ID,
 				Command:  *command,
 				Logger:   params.Logger,
+				EventCh:  serverEventCh,
 			})
 			c.tunnels = append(c.tunnels, tunnel)
-			tunnelEvents = tunnel.Events()
 		}
 
 		wsc, err := New(Params{
 			Config: cfg,
 			Logger: params.Logger,
 
-			OngoingIncidentsCh: ongoingIncidentsCh,
-			ConnErrorCh:        connErrorCh,
-			ReconnectDelay:     params.ReconnectDelay,
-			ConnectionEventCh:  connectionEventCh,
-			Tunnel:             tunnel,
+			EventCh:        serverEventCh,
+			ReconnectDelay: params.ReconnectDelay,
+			Tunnel:         tunnel,
 		})
 		if err != nil {
 			c.Close()
@@ -113,14 +108,11 @@ func NewCombiner(params CombinerParams) (*Combiner, error) {
 		c.wg.Add(1)
 		go func(
 			cfg ConfigServer,
-			ongoingIncidentsCh <-chan *salmon.Notification,
-			connErrorCh <-chan string,
-			connectionEventCh <-chan ConnectionEvent,
-			tunnelEvents <-chan TunnelEvent,
+			serverEventCh <-chan ServerEvent,
 		) {
 			defer c.wg.Done()
-			c.runWSClient(cfg, ongoingIncidentsCh, connErrorCh, connectionEventCh, tunnelEvents)
-		}(cfg, ongoingIncidentsCh, connErrorCh, connectionEventCh, tunnelEvents)
+			c.runWSClient(cfg, serverEventCh)
+		}(cfg, serverEventCh)
 	}
 
 	return c, nil
@@ -260,47 +252,54 @@ func (c *Combiner) ForgetStaleIncident(key string) bool {
 
 func (c *Combiner) runWSClient(
 	cfg ConfigServer,
-	ongoingIncidentsCh <-chan *salmon.Notification,
-	connErrorCh <-chan string,
-	connectionEventCh <-chan ConnectionEvent,
-	tunnelEvents <-chan TunnelEvent,
+	serverEventCh <-chan ServerEvent,
 ) {
 	for {
 		select {
 		case <-c.closeDone:
 			return
-		case event := <-connectionEventCh:
-			if c.params.ConnectionStatusHandler != nil {
-				c.params.ConnectionStatusHandler(cfg.ID, event)
-			}
-			if event.EventKind == EventKindDisconnected {
-				c.markServerIncidentsStale(cfg.ID, event.Time)
-			}
-		case notif := <-ongoingIncidentsCh:
-			notif, err := getPrefixedNotif(notif, cfg.ID)
-			if err != nil {
-				c.params.Logger.Log(logs.Error, "Ignoring invalid incident notification from %s: %s", cfg.ID, err)
-				continue
-			}
-
-			c.applyNotification(cfg.ID, notif)
-
-		case err := <-connErrorCh:
-			c.applyInternalItem(salmon.ItemKey(fmt.Sprintf("internal.connection.%s", cfg.ID)), err)
-
-		case event := <-tunnelEvents:
-			err := event.Error
-			if event.Kind == TunnelEventReady {
-				err = ""
-			} else {
-				connectionEvent := ConnectionEvent{EventKind: EventKindDisconnected, Time: event.Time}
-				if c.params.ConnectionStatusHandler != nil {
-					c.params.ConnectionStatusHandler(cfg.ID, connectionEvent)
-				}
-				c.markServerIncidentsStale(cfg.ID, event.Time)
-			}
-			c.applyInternalItem(salmon.ItemKey(fmt.Sprintf("internal.tunnel.%s", cfg.ID)), err)
+		case event := <-serverEventCh:
+			c.applyServerEvent(cfg.ID, event)
 		}
+	}
+}
+
+func (c *Combiner) applyServerEvent(id string, event ServerEvent) {
+	switch event.Kind {
+	case ServerEventKindConnection:
+		if c.params.ConnectionStatusHandler != nil {
+			c.params.ConnectionStatusHandler(id, event.Connection)
+		}
+		if event.Connection.EventKind == EventKindDisconnected {
+			c.markServerIncidentsStale(id, event.Connection.Time)
+		}
+
+	case ServerEventKindOngoingIncidents:
+		notif, err := getPrefixedNotif(event.OngoingIncidents, id)
+		if err != nil {
+			c.params.Logger.Log(logs.Error, "Ignoring invalid incident notification from %s: %s", id, err)
+			return
+		}
+		c.applyNotification(id, notif)
+
+	case ServerEventKindConnectionError:
+		c.applyInternalItem(salmon.ItemKey(fmt.Sprintf("internal.connection.%s", id)), event.ConnectionError)
+
+	case ServerEventKindTunnel:
+		err := event.Tunnel.Error
+		if event.Tunnel.Kind == TunnelEventReady {
+			err = ""
+		} else {
+			connectionEvent := ConnectionEvent{EventKind: EventKindDisconnected, Time: event.Tunnel.Time}
+			if c.params.ConnectionStatusHandler != nil {
+				c.params.ConnectionStatusHandler(id, connectionEvent)
+			}
+			c.markServerIncidentsStale(id, event.Tunnel.Time)
+		}
+		c.applyInternalItem(salmon.ItemKey(fmt.Sprintf("internal.tunnel.%s", id)), err)
+
+	default:
+		c.params.Logger.Log(logs.Error, "Ignoring invalid event kind %q from %s", event.Kind, id)
 	}
 }
 

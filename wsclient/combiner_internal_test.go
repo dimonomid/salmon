@@ -8,6 +8,7 @@ import (
 
 	"github.com/dimonomid/salmon"
 	"github.com/dimonomid/salmon/logs"
+	"github.com/dimonomid/salmon/statestracker"
 )
 
 func combinerTestIncident(key string, stale bool) *salmon.ItemWContext {
@@ -203,5 +204,102 @@ func TestCombinerReportsTunnelFailureAsInternalIncident(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("tunnel failure did not produce an internal incident")
+	}
+}
+
+func TestCombinerKeepsReconnectedSnapshotFreshWhenEventsAreQueued(t *testing.T) {
+	tests := []struct {
+		name   string
+		events []ServerEvent
+	}{
+		{
+			name: "WebSocket reconnect",
+			events: []ServerEvent{
+				{Kind: ServerEventKindConnection, Connection: ConnectionEvent{EventKind: EventKindDisconnected}},
+				{Kind: ServerEventKindConnection, Connection: ConnectionEvent{EventKind: EventKindConnected}},
+			},
+		},
+		{
+			name: "tunnel restart",
+			events: []ServerEvent{
+				{Kind: ServerEventKindTunnel, Tunnel: TunnelEvent{Kind: TunnelEventFailed, Error: "tunnel failed"}},
+				{Kind: ServerEventKindTunnel, Tunnel: TunnelEvent{Kind: TunnelEventReady}},
+				{Kind: ServerEventKindConnection, Connection: ConnectionEvent{EventKind: EventKindConnected}},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			clk := clock.NewMock()
+			updates := make(chan *salmon.Notification, 16)
+			statuses := make(chan ConnectionEvent, 4)
+			combiner := &Combiner{
+				params: CombinerParams{
+					Clock:  clk,
+					Logger: logs.NewLogger(logs.LoggerParams{Clock: clk}),
+					OngoingIncidentsHandler: func(notification *salmon.Notification) {
+						updates <- notification
+					},
+					ConnectionStatusHandler: func(_ string, event ConnectionEvent) {
+						statuses <- event
+					},
+				},
+				internalTracker: statestracker.NewItemStatesTracker(statestracker.ItemStatesTrackerParams{Clock: clk}),
+				totalByID: map[string][]*salmon.ItemWContext{
+					"remote": {combinerTestIncident("remote.disk", false)},
+				},
+				closeDone: make(chan struct{}),
+			}
+
+			events := make(chan ServerEvent, len(test.events)+1)
+			for _, event := range test.events {
+				event.Connection.Time = clk.Now()
+				event.Tunnel.Time = clk.Now()
+				events <- event
+			}
+			events <- ServerEvent{
+				Kind: ServerEventKindOngoingIncidents,
+				OngoingIncidents: &salmon.Notification{OngoingIncidents: salmon.OngoingIncidentsWDelta{
+					Total: []*salmon.ItemWContext{combinerTestIncident("disk", false)},
+				}},
+			}
+
+			done := make(chan struct{})
+			go func() {
+				combiner.runWSClient(ConfigServer{ID: "remote"}, events)
+				close(done)
+			}()
+
+			deadline := time.After(3 * time.Second)
+			for {
+				select {
+				case notification := <-updates:
+					incident := incidentWithKey(notification.OngoingIncidents.Total, "remote.disk")
+					if incident != nil && !incident.Stale {
+						var latestStatus ConnectionEvent
+						for i := 0; i < 2; i++ {
+							select {
+							case latestStatus = <-statuses:
+							case <-time.After(3 * time.Second):
+								t.Fatal("connection status was not published")
+							}
+						}
+						if latestStatus.EventKind != EventKindConnected {
+							t.Fatalf("latest connection status = %s, want connected", latestStatus.EventKind)
+						}
+						close(combiner.closeDone)
+						select {
+						case <-done:
+						case <-time.After(3 * time.Second):
+							t.Fatal("combiner event loop did not stop")
+						}
+						return
+					}
+				case <-deadline:
+					t.Fatal("reconnected snapshot was not published as fresh")
+				}
+			}
+		})
 	}
 }

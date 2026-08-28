@@ -59,15 +59,43 @@ type Params struct {
 	Config ConfigServer
 	Logger *logs.Logger
 
-	OngoingIncidentsCh chan<- *salmon.Notification
-	ConnErrorCh        chan<- string
+	// EventCh receives every event for this server in observation order.
+	EventCh chan<- ServerEvent
 	// ReconnectDelay overrides the production reconnect delay when non-zero.
 	ReconnectDelay time.Duration
-	// ConnectionEventCh receives connection and heartbeat events.
-	ConnectionEventCh chan<- ConnectionEvent
 	// Tunnel is optional; if provided, it delays connection attempts until the
 	// server's tunnel is ready.
 	Tunnel *TunnelSupervisor
+}
+
+// ServerEventKind identifies the payload carried by a ServerEvent.
+type ServerEventKind string
+
+const (
+	// ServerEventKindOngoingIncidents carries an incident notification.
+	ServerEventKindOngoingIncidents ServerEventKind = "ongoing incidents"
+	// ServerEventKindConnectionError carries the current connection error.
+	ServerEventKindConnectionError ServerEventKind = "connection error"
+	// ServerEventKindConnection carries a connection transition or heartbeat.
+	ServerEventKindConnection ServerEventKind = "connection"
+	// ServerEventKindTunnel carries a tunnel lifecycle event.
+	ServerEventKindTunnel ServerEventKind = "tunnel"
+)
+
+// ServerEvent is one event in the ordered lifecycle of a configured server.
+// Exactly one payload field is meaningful according to Kind.
+type ServerEvent struct {
+	// Kind identifies the event payload.
+	Kind ServerEventKind
+	// OngoingIncidents contains the notification for an incident event.
+	OngoingIncidents *salmon.Notification
+	// ConnectionError contains the current error for a connection-error event;
+	// an empty value resolves the corresponding internal incident.
+	ConnectionError string
+	// Connection contains the transition or heartbeat for a connection event.
+	Connection ConnectionEvent
+	// Tunnel contains the lifecycle change for a tunnel event.
+	Tunnel TunnelEvent
 }
 
 // ConnectionEventKind identifies the kind of connection event.
@@ -88,6 +116,9 @@ type ConnectionEvent struct {
 func New(params Params) (*WSClient, error) {
 	if params.Logger == nil {
 		panic("Logger is required")
+	}
+	if params.EventCh == nil {
+		panic("EventCh is required")
 	}
 	params.Logger = params.Logger.WithNamespaceAppended("WSClient")
 	c := &WSClient{
@@ -118,9 +149,7 @@ mainLoop:
 				return
 			}
 		}
-		select {
-		case c.params.ConnErrorCh <- connError:
-		case <-c.interrupt:
+		if !c.sendConnectionError(connError) {
 			return
 		}
 
@@ -172,9 +201,7 @@ mainLoop:
 		}
 
 		connError = ""
-		select {
-		case c.params.ConnErrorCh <- connError:
-		case <-c.interrupt:
+		if !c.sendConnectionError(connError) {
 			_ = conn.Close()
 			return
 		}
@@ -349,31 +376,29 @@ func validateNotification(notif *salmon.Notification) error {
 }
 
 func (c *WSClient) sendOngoingIncidents(notif *salmon.Notification) bool {
-	select {
-	case c.params.OngoingIncidentsCh <- notif:
-		return true
-	case <-c.interrupt:
-		return false
-	default:
-	}
+	return c.sendServerEvent(ServerEvent{
+		Kind:             ServerEventKindOngoingIncidents,
+		OngoingIncidents: notif,
+	})
+}
 
-	started := time.Now()
-	c.params.Logger.Log(logs.Warning, "Incident delivery from %s is blocked; waiting for the consumer", c.params.Config.ID)
-	select {
-	case c.params.OngoingIncidentsCh <- notif:
-		c.params.Logger.Log(logs.Warning, "Incident delivery from %s resumed after %s", c.params.Config.ID, time.Since(started))
-		return true
-	case <-c.interrupt:
-		return false
-	}
+func (c *WSClient) sendConnectionError(err string) bool {
+	return c.sendServerEvent(ServerEvent{
+		Kind:            ServerEventKindConnectionError,
+		ConnectionError: err,
+	})
 }
 
 func (c *WSClient) sendConnectionEvent(event ConnectionEvent) bool {
-	if c.params.ConnectionEventCh == nil {
-		return true
-	}
+	return c.sendServerEvent(ServerEvent{
+		Kind:       ServerEventKindConnection,
+		Connection: event,
+	})
+}
+
+func (c *WSClient) sendServerEvent(event ServerEvent) bool {
 	select {
-	case c.params.ConnectionEventCh <- event:
+	case c.params.EventCh <- event:
 		return true
 	case <-c.interrupt:
 		return false
@@ -381,10 +406,10 @@ func (c *WSClient) sendConnectionEvent(event ConnectionEvent) bool {
 	}
 
 	started := time.Now()
-	c.params.Logger.Log(logs.Warning, "%s event delivery from %s is blocked; waiting for the consumer", event.EventKind, c.params.Config.ID)
+	c.params.Logger.Log(logs.Warning, "%s event delivery from %s is blocked; waiting for the consumer", event.Kind, c.params.Config.ID)
 	select {
-	case c.params.ConnectionEventCh <- event:
-		c.params.Logger.Log(logs.Warning, "%s event delivery from %s resumed after %s", event.EventKind, c.params.Config.ID, time.Since(started))
+	case c.params.EventCh <- event:
+		c.params.Logger.Log(logs.Warning, "%s event delivery from %s resumed after %s", event.Kind, c.params.Config.ID, time.Since(started))
 		return true
 	case <-c.interrupt:
 		return false

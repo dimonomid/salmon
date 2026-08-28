@@ -10,7 +10,6 @@ import (
 	"github.com/benbjohnson/clock"
 	"github.com/gorilla/websocket"
 
-	"github.com/dimonomid/salmon"
 	"github.com/dimonomid/salmon/logs"
 )
 
@@ -31,6 +30,7 @@ func TestWSClientWaitsForTunnelReadiness(t *testing.T) {
 	}))
 
 	logger := logs.NewLogger(logs.LoggerParams{Clock: clock.New()})
+	serverEvents := make(chan ServerEvent, 16)
 	tunnel := NewTunnelSupervisor(TunnelSupervisorParams{
 		ServerID: "remote",
 		Command: TunnelCommandSpec{
@@ -38,17 +38,15 @@ func TestWSClientWaitsForTunnelReadiness(t *testing.T) {
 			ReadinessProbeString: "tunnel-ready",
 		},
 		Logger:       logger,
+		EventCh:      serverEvents,
 		RestartDelay: time.Hour,
 	})
-	connectionEvents := make(chan ConnectionEvent, 8)
 	client, err := New(Params{
-		Config:             ConfigServer{ID: "remote", Addr: strings.TrimPrefix(server.URL, "http://")},
-		Logger:             logger,
-		OngoingIncidentsCh: make(chan *salmon.Notification, 8),
-		ConnErrorCh:        make(chan string, 8),
-		ReconnectDelay:     time.Hour,
-		ConnectionEventCh:  connectionEvents,
-		Tunnel:             tunnel,
+		Config:         ConfigServer{ID: "remote", Addr: strings.TrimPrefix(server.URL, "http://")},
+		Logger:         logger,
+		EventCh:        serverEvents,
+		ReconnectDelay: time.Hour,
+		Tunnel:         tunnel,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -62,8 +60,8 @@ func TestWSClientWaitsForTunnelReadiness(t *testing.T) {
 	select {
 	case <-requests:
 		t.Fatal("WebSocket connection was attempted before tunnel readiness")
-	case event := <-connectionEvents:
-		t.Fatalf("connection event %#v was published before tunnel readiness", event)
+	case event := <-serverEvents:
+		t.Fatalf("server event %#v was published before tunnel readiness", event)
 	case <-time.After(50 * time.Millisecond):
 	}
 
@@ -71,5 +69,35 @@ func TestWSClientWaitsForTunnelReadiness(t *testing.T) {
 	case <-requests:
 	case <-time.After(3 * time.Second):
 		t.Fatal("WebSocket connection was not attempted after tunnel readiness")
+	}
+
+	for i, wantKind := range []ServerEventKind{
+		ServerEventKindTunnel,
+		ServerEventKindConnectionError,
+		ServerEventKindConnection,
+	} {
+		select {
+		case event := <-serverEvents:
+			if event.Kind != wantKind {
+				t.Fatalf("event #%d kind = %q, want %q; event = %#v", i+1, event.Kind, wantKind, event)
+			}
+			switch wantKind {
+			case ServerEventKindTunnel:
+				if event.Tunnel.Kind != TunnelEventReady {
+					t.Fatalf("event #%d tunnel kind = %d, want ready; event = %#v", i+1, event.Tunnel.Kind, event)
+				}
+			case ServerEventKindConnectionError:
+				if event.ConnectionError != "" {
+					t.Fatalf("event #%d connection error = %q, want empty", i+1, event.ConnectionError)
+				}
+			case ServerEventKindConnection:
+				if event.Connection.EventKind != EventKindConnected {
+					t.Fatalf("event #%d connection kind = %q, want connected; event = %#v",
+						i+1, event.Connection.EventKind, event)
+				}
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("timed out waiting for event #%d (%s)", i+1, wantKind)
+		}
 	}
 }

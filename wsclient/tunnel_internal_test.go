@@ -86,10 +86,12 @@ func TestTunnelCommandPreservesCustomArguments(t *testing.T) {
 
 func TestTunnelSupervisorRestartsExitedCommand(t *testing.T) {
 	marker := t.TempDir() + "/runs"
+	events := make(chan ServerEvent, 32)
 	supervisor := NewTunnelSupervisor(TunnelSupervisorParams{
 		ServerID:     "remote",
 		Command:      TunnelCommandSpec{Command: []string{"sh", "-c", `printf x >> "$1"`, "sh", marker}},
 		Logger:       logs.NewLogger(logs.LoggerParams{Clock: clock.New()}),
+		EventCh:      events,
 		RestartDelay: 10 * time.Millisecond,
 	})
 	t.Cleanup(supervisor.Close)
@@ -108,10 +110,12 @@ func TestTunnelSupervisorRestartsExitedCommand(t *testing.T) {
 }
 
 func TestTunnelSupervisorCloseStopsActiveCommand(t *testing.T) {
+	events := make(chan ServerEvent, 32)
 	supervisor := NewTunnelSupervisor(TunnelSupervisorParams{
 		ServerID:     "remote",
 		Command:      TunnelCommandSpec{Command: []string{"sh", "-c", "exec sleep 30"}},
 		Logger:       logs.NewLogger(logs.LoggerParams{Clock: clock.New()}),
+		EventCh:      events,
 		RestartDelay: time.Hour,
 	})
 	time.Sleep(20 * time.Millisecond)
@@ -130,6 +134,7 @@ func TestTunnelSupervisorCloseStopsActiveCommand(t *testing.T) {
 }
 
 func TestTunnelSupervisorWaitsForOutputProbe(t *testing.T) {
+	events := make(chan ServerEvent, 32)
 	supervisor := NewTunnelSupervisor(TunnelSupervisorParams{
 		ServerID: "remote",
 		Command: TunnelCommandSpec{
@@ -137,6 +142,7 @@ func TestTunnelSupervisorWaitsForOutputProbe(t *testing.T) {
 			ReadinessProbeString: "tunnel-ready",
 		},
 		Logger:       logs.NewLogger(logs.LoggerParams{Clock: clock.New()}),
+		EventCh:      events,
 		RestartDelay: time.Hour,
 	})
 	t.Cleanup(supervisor.Close)
@@ -160,12 +166,14 @@ func TestTunnelSupervisorWaitsForOutputProbe(t *testing.T) {
 }
 
 func TestTunnelSupervisorWithoutProbeIsReadyAfterStart(t *testing.T) {
+	events := make(chan ServerEvent, 32)
 	supervisor := NewTunnelSupervisor(TunnelSupervisorParams{
 		ServerID: "remote",
 		Command: TunnelCommandSpec{
 			Command: []string{"sh", "-c", "exec sleep 30"},
 		},
 		Logger:       logs.NewLogger(logs.LoggerParams{Clock: clock.New()}),
+		EventCh:      events,
 		RestartDelay: time.Hour,
 	})
 	t.Cleanup(supervisor.Close)
@@ -184,6 +192,7 @@ func TestTunnelSupervisorWithoutProbeIsReadyAfterStart(t *testing.T) {
 }
 
 func TestTunnelSupervisorReportsFailureBeforeReadiness(t *testing.T) {
+	events := make(chan ServerEvent, 32)
 	supervisor := NewTunnelSupervisor(TunnelSupervisorParams{
 		ServerID: "remote",
 		Command: TunnelCommandSpec{
@@ -191,12 +200,14 @@ func TestTunnelSupervisorReportsFailureBeforeReadiness(t *testing.T) {
 			ReadinessProbeString: "ready",
 		},
 		Logger:       logs.NewLogger(logs.LoggerParams{Clock: clock.New()}),
+		EventCh:      events,
 		RestartDelay: time.Hour,
 	})
 	t.Cleanup(supervisor.Close)
 
 	select {
-	case event := <-supervisor.Events():
+	case serverEvent := <-events:
+		event := serverEvent.Tunnel
 		if event.Kind != TunnelEventFailed || !strings.Contains(event.Error, "useful-stderr") {
 			t.Fatalf("event = %#v, want failed tunnel event", event)
 		}
@@ -213,6 +224,7 @@ func TestTunnelSupervisorReportsFailureBeforeReadiness(t *testing.T) {
 
 func TestTunnelSupervisorWaitsForRestartedProcessReadiness(t *testing.T) {
 	marker := t.TempDir() + "/first-attempt"
+	events := make(chan ServerEvent, 32)
 	supervisor := NewTunnelSupervisor(TunnelSupervisorParams{
 		ServerID: "remote",
 		Command: TunnelCommandSpec{
@@ -224,12 +236,14 @@ func TestTunnelSupervisorWaitsForRestartedProcessReadiness(t *testing.T) {
 			ReadinessProbeString: "ready",
 		},
 		Logger:       logs.NewLogger(logs.LoggerParams{Clock: clock.New()}),
+		EventCh:      events,
 		RestartDelay: 10 * time.Millisecond,
 	})
 	t.Cleanup(supervisor.Close)
 
 	select {
-	case event := <-supervisor.Events():
+	case serverEvent := <-events:
+		event := serverEvent.Tunnel
 		if event.Kind != TunnelEventFailed {
 			t.Fatalf("first event = %#v, want failure", event)
 		}

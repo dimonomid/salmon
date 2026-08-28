@@ -63,8 +63,6 @@ type TunnelSupervisor struct {
 	cancel context.CancelFunc
 	// done is closed after the supervisor loop exits.
 	done chan struct{}
-	// events carries readiness and failure events to the tunnel owner.
-	events chan TunnelEvent
 	// once makes Close safe to call more than once.
 	once sync.Once
 
@@ -86,6 +84,9 @@ type TunnelSupervisorParams struct {
 	Command TunnelCommandSpec
 	// Logger receives tunnel lifecycle messages.
 	Logger *logs.Logger
+	// EventCh receives tunnel lifecycle events in the server's ordered event
+	// stream.
+	EventCh chan<- ServerEvent
 	// RestartDelay controls how long to wait after a failure before restarting.
 	RestartDelay time.Duration
 }
@@ -94,6 +95,9 @@ type TunnelSupervisorParams struct {
 func NewTunnelSupervisor(params TunnelSupervisorParams) *TunnelSupervisor {
 	if params.Logger == nil {
 		panic("Logger is required")
+	}
+	if params.EventCh == nil {
+		panic("EventCh is required")
 	}
 	if len(params.Command.Command) == 0 || params.Command.Command[0] == "" {
 		panic("Tunnel command is required")
@@ -109,7 +113,6 @@ func NewTunnelSupervisor(params TunnelSupervisorParams) *TunnelSupervisor {
 		params:  params,
 		cancel:  cancel,
 		done:    make(chan struct{}),
-		events:  make(chan TunnelEvent, 32),
 		readyCh: make(chan struct{}),
 	}
 	go t.run(ctx)
@@ -120,11 +123,6 @@ func NewTunnelSupervisor(params TunnelSupervisorParams) *TunnelSupervisor {
 func (t *TunnelSupervisor) Close() {
 	t.once.Do(t.cancel)
 	<-t.done
-}
-
-// Events returns the channel carrying tunnel readiness and failure events.
-func (t *TunnelSupervisor) Events() <-chan TunnelEvent {
-	return t.events
 }
 
 // WaitReady waits until the current tunnel process reports readiness. When a
@@ -233,12 +231,18 @@ func (t *TunnelSupervisor) markReady(ctx context.Context, generationReady chan s
 		t.readyMtx.Unlock()
 		return
 	}
+	// Publish readiness before releasing WaitReady callers so a subsequent
+	// connection event cannot overtake this event in the shared server stream.
+	t.emit(ctx, TunnelEvent{Kind: TunnelEventReady, Time: time.Now()})
+	if ctx.Err() != nil {
+		t.readyMtx.Unlock()
+		return
+	}
 	t.ready = true
 	close(t.readyCh)
 	t.readyMtx.Unlock()
 
 	t.params.Logger.Log(logs.Info, "Tunnel for %s is ready", t.params.ServerID)
-	t.emit(ctx, TunnelEvent{Kind: TunnelEventReady, Time: time.Now()})
 }
 
 // setUnready replaces the readiness gate for the next process generation.
@@ -255,7 +259,7 @@ func (t *TunnelSupervisor) setUnready() {
 // emit publishes an event unless supervision has been canceled.
 func (t *TunnelSupervisor) emit(ctx context.Context, event TunnelEvent) {
 	select {
-	case t.events <- event:
+	case t.params.EventCh <- ServerEvent{Kind: ServerEventKindTunnel, Tunnel: event}:
 	case <-ctx.Done():
 	}
 }

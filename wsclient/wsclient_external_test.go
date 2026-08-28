@@ -46,24 +46,29 @@ func TestClientLogsReceivedServerIncidentTotal(t *testing.T) {
 		Clock: clock.New(),
 		Sinks: []logs.LoggerSinkParams{{Filepath: logPath, MinLevel: logs.Info}},
 	})
-	notifications := make(chan *salmon.Notification, 1)
+	events := make(chan wsclient.ServerEvent, 16)
 	client, err := wsclient.New(wsclient.Params{
-		Config:             wsclient.ConfigServer{ID: "test", Addr: strings.TrimPrefix(server.URL, "http://")},
-		Logger:             logger,
-		OngoingIncidentsCh: notifications,
-		ConnErrorCh:        make(chan string, 8),
-		ReconnectDelay:     time.Hour,
-		ConnectionEventCh:  make(chan wsclient.ConnectionEvent, 8),
+		Config:         wsclient.ConfigServer{ID: "test", Addr: strings.TrimPrefix(server.URL, "http://")},
+		Logger:         logger,
+		EventCh:        events,
+		ReconnectDelay: time.Hour,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(client.Close)
 
-	select {
-	case <-notifications:
-	case <-time.After(3 * time.Second):
-		t.Fatal("client did not receive the incident snapshot")
+	deadline := time.After(3 * time.Second)
+	received := false
+	for !received {
+		select {
+		case event := <-events:
+			if event.Kind == wsclient.ServerEventKindOngoingIncidents {
+				received = true
+			}
+		case <-deadline:
+			t.Fatal("client did not receive the incident snapshot")
+		}
 	}
 	data, err := os.ReadFile(logPath)
 	if err != nil {
@@ -152,16 +157,12 @@ func TestClientDisconnectsFromMalformedServerMessages(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 
-			notifications := make(chan *salmon.Notification, 1)
-			connectionErrors := make(chan string, 8)
-			connectionEvents := make(chan wsclient.ConnectionEvent, 8)
+			events := make(chan wsclient.ServerEvent, 16)
 			client, err := wsclient.New(wsclient.Params{
-				Config:             wsclient.ConfigServer{ID: "test", Addr: strings.TrimPrefix(server.URL, "http://")},
-				Logger:             testLogger,
-				OngoingIncidentsCh: notifications,
-				ConnErrorCh:        connectionErrors,
-				ReconnectDelay:     time.Hour,
-				ConnectionEventCh:  connectionEvents,
+				Config:         wsclient.ConfigServer{ID: "test", Addr: strings.TrimPrefix(server.URL, "http://")},
+				Logger:         testLogger,
+				EventCh:        events,
+				ReconnectDelay: time.Hour,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -179,30 +180,27 @@ func TestClientDisconnectsFromMalformedServerMessages(t *testing.T) {
 			}
 
 			deadline := time.After(3 * time.Second)
+			disconnected := false
 			for {
 				select {
-				case event := <-connectionEvents:
-					if event.EventKind == wsclient.EventKindDisconnected {
-						reported := false
-						for !reported {
-							select {
-							case connectionError := <-connectionErrors:
-								if connectionError != "" {
-									if test.wantError != "" && !strings.Contains(connectionError, test.wantError) {
-										t.Fatalf("connection error %q does not contain %q", connectionError, test.wantError)
-									}
-									reported = true
-								}
-							case <-time.After(3 * time.Second):
-								t.Fatal("malformed message was not reported as a connection error")
+				case event := <-events:
+					switch event.Kind {
+					case wsclient.ServerEventKindConnection:
+						if event.Connection.EventKind == wsclient.EventKindDisconnected {
+							disconnected = true
+						}
+					case wsclient.ServerEventKindConnectionError:
+						if event.ConnectionError != "" {
+							if !disconnected {
+								t.Fatal("connection error was delivered before disconnection")
 							}
+							if test.wantError != "" && !strings.Contains(event.ConnectionError, test.wantError) {
+								t.Fatalf("connection error %q does not contain %q", event.ConnectionError, test.wantError)
+							}
+							return
 						}
-						select {
-						case notification := <-notifications:
-							t.Fatalf("malformed message produced notification %#v", notification)
-						default:
-						}
-						return
+					case wsclient.ServerEventKindOngoingIncidents:
+						t.Fatalf("malformed message produced notification %#v", event.OngoingIncidents)
 					}
 				case <-deadline:
 					t.Fatal("client did not disconnect from malformed server message")
