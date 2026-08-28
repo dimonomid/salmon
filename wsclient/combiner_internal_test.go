@@ -169,3 +169,39 @@ func TestGetPrefixedNotifRejectsNullItem(t *testing.T) {
 		t.Fatal("null incident was accepted")
 	}
 }
+
+func TestCombinerReportsTunnelFailureAsInternalIncident(t *testing.T) {
+	notifications := make(chan *salmon.Notification, 8)
+	combiner, err := NewCombiner(CombinerParams{
+		Config: Config{Servers: []ConfigServer{{
+			ID:   "remote",
+			Addr: "127.0.0.1:41992",
+			Tunnel: &ConfigTunnel{CustomCommand: &ConfigCustomTunnelCommand{
+				Command:        []string{"sh", "-c", "exit 7"},
+				ReadinessProbe: &ConfigTunnelReadinessProbe{ContainsOutput: "ready"},
+			}},
+		}}},
+		Logger: logs.NewLogger(logs.LoggerParams{Clock: clock.New()}),
+		Clock:  clock.New(),
+		OngoingIncidentsHandler: func(notification *salmon.Notification) {
+			notifications <- notification
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(combiner.Close)
+
+	select {
+	case notification := <-notifications:
+		incident := incidentWithKey(notification.OngoingIncidents.Total, "internal.tunnel.remote")
+		if incident == nil || incident.State != salmon.ItemStateError || incident.Details == "" {
+			t.Fatalf("notification = %#v, want tunnel failure incident", notification)
+		}
+		if incidentWithKey(notification.OngoingIncidents.Total, "internal.connection.remote") != nil {
+			t.Fatalf("notification = %#v, unexpectedly contains connection incident", notification)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("tunnel failure did not produce an internal incident")
+	}
+}

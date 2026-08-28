@@ -27,9 +27,23 @@ const (
 	// heartbeatPeriod is how often the server is expected to send heartbeats
 	heartbeatPeriod = 10 * time.Second
 
+	// maxNumHeartbeatPeriodsUntilDisconnect is how many heartbeat periods may
+	// pass before a silent Salmon connection, or its SSH tunnel, is considered
+	// dead.
+	maxNumHeartbeatPeriodsUntilDisconnect = 3
+
 	// readTimeout specifies how long to wait for any data received from the
 	// server before disconnecting.
-	readTimeout = heartbeatPeriod * 3
+	readTimeout = heartbeatPeriod * maxNumHeartbeatPeriodsUntilDisconnect
+
+	// tunnelFailureSettleDelay gives the tunnel supervisor time to mark its
+	// process unavailable when a tunnel failure and the resulting WebSocket
+	// error are observed in the opposite order. Without this delay, the
+	// WebSocket error could briefly be reported as a separate connection
+	// incident. We cannot wait indefinitely for the tunnel to fail because the
+	// same WebSocket error can be caused by Salmon becoming unavailable while
+	// the tunnel process remains healthy.
+	tunnelFailureSettleDelay = 50 * time.Millisecond
 )
 
 type WSClient struct {
@@ -51,6 +65,9 @@ type Params struct {
 	ReconnectDelay time.Duration
 	// ConnectionEventCh receives connection and heartbeat events.
 	ConnectionEventCh chan<- ConnectionEvent
+	// Tunnel is optional; if provided, it delays connection attempts until the
+	// server's tunnel is ready.
+	Tunnel *TunnelSupervisor
 }
 
 // ConnectionEventKind identifies the kind of connection event.
@@ -94,13 +111,20 @@ func (c *WSClient) eventLoop() {
 
 mainLoop:
 	for i := 0; true; i++ {
+		tunnelWasReady := true
+		if c.params.Tunnel != nil {
+			tunnelWasReady = c.params.Tunnel.IsReady()
+			if !c.params.Tunnel.WaitReady(c.interrupt) {
+				return
+			}
+		}
 		select {
 		case c.params.ConnErrorCh <- connError:
 		case <-c.interrupt:
 			return
 		}
 
-		if i > 0 {
+		if i > 0 && tunnelWasReady {
 			delay := 5 * time.Second
 			if c.params.ReconnectDelay > 0 {
 				delay = c.params.ReconnectDelay
@@ -127,6 +151,11 @@ mainLoop:
 		c.params.Logger.Log(logs.Info, "Connecting to %s (%s)", c.params.Config.ID, ustr)
 		conn, _, err := websocket.DefaultDialer.Dial(ustr, nil)
 		if err != nil {
+			if c.tunnelUnavailable() {
+				connError = ""
+				c.params.Logger.Log(logs.Debug, "Connection to %s is waiting for its tunnel", c.params.Config.ID)
+				continue mainLoop
+			}
 			connError = err.Error()
 			if !c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindDisconnected, Time: time.Now()}) {
 				return
@@ -178,6 +207,11 @@ mainLoop:
 			for {
 				_, message, err := conn.ReadMessage()
 				if err != nil {
+					if c.tunnelUnavailable() {
+						connError = ""
+						c.params.Logger.Log(logs.Debug, "Connection to %s closed with its tunnel", c.params.Config.ID)
+						return
+					}
 					connError = err.Error()
 					c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindDisconnected, Time: time.Now()})
 					select {
@@ -262,6 +296,20 @@ mainLoop:
 				return
 			}
 		}
+	}
+}
+
+func (c *WSClient) tunnelUnavailable() bool {
+	if c.params.Tunnel == nil {
+		return false
+	}
+	timer := time.NewTimer(tunnelFailureSettleDelay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return !c.params.Tunnel.IsReady()
+	case <-c.interrupt:
+		return true
 	}
 }
 

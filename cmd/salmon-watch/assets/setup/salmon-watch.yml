@@ -2,3 +2,28 @@ wsClient:
   servers:
     - id: local # Arbitrary but unique ID for this server.
       addr: localhost:41990
+
+    # SSH tunnel example. Salmon Watch starts and supervises ssh, while its
+    # normal WebSocket reconnect loop waits for the tunnel to become usable.
+    # - id: remote
+    #   addr: 127.0.0.1:41992
+    #   tunnel:
+    #     ssh:
+    #       host: salmon.example.com
+    #       user: salmon
+    #       port: 22
+    #       remoteSalmonAddr: 127.0.0.1:41990
+    #       extraSshArgs: ["-i", "/etc/salmon-watch/remote.key"]
+
+    # Any persistent tunnel command can be supervised instead. The first item
+    # is the executable and the rest are passed directly as arguments, without
+    # a shell.
+    # - id: custom-tunnel
+    #   addr: 127.0.0.1:41993
+    #   tunnel:
+    #     customCommand:
+    #       command: ["my-tunnel", "--listen", "127.0.0.1:41993"]
+    #       # Omit readinessProbe if the command is ready immediately after it
+    #       # starts. Otherwise, WebSocket connections wait for this output.
+    #       readinessProbe:
+    #         containsOutput: "tunnel ready"

@@ -31,6 +31,8 @@ type Combiner struct {
 	totalMtx  sync.Mutex
 	// clients are retained so Close can stop every per-server connection.
 	clients []*WSClient
+	// tunnels are retained so their commands are stopped with the combiner.
+	tunnels []*TunnelSupervisor
 	// closeOnce and closeDone coordinate shutdown between all combiner loops.
 	closeOnce sync.Once
 	closeDone chan struct{}
@@ -75,6 +77,23 @@ func NewCombiner(params CombinerParams) (*Combiner, error) {
 		connErrorCh := make(chan string, 32)
 		connectionEventCh := make(chan ConnectionEvent, 32)
 
+		command, err := TunnelCommand(cfg)
+		if err != nil {
+			c.Close()
+			return nil, errors.Annotatef(err, "creating tunnel command #%d (%s)", i, cfg.ID)
+		}
+		var tunnel *TunnelSupervisor
+		var tunnelEvents <-chan TunnelEvent
+		if command != nil {
+			tunnel = NewTunnelSupervisor(TunnelSupervisorParams{
+				ServerID: cfg.ID,
+				Command:  *command,
+				Logger:   params.Logger,
+			})
+			c.tunnels = append(c.tunnels, tunnel)
+			tunnelEvents = tunnel.Events()
+		}
+
 		wsc, err := New(Params{
 			Config: cfg,
 			Logger: params.Logger,
@@ -83,6 +102,7 @@ func NewCombiner(params CombinerParams) (*Combiner, error) {
 			ConnErrorCh:        connErrorCh,
 			ReconnectDelay:     params.ReconnectDelay,
 			ConnectionEventCh:  connectionEventCh,
+			Tunnel:             tunnel,
 		})
 		if err != nil {
 			c.Close()
@@ -96,10 +116,11 @@ func NewCombiner(params CombinerParams) (*Combiner, error) {
 			ongoingIncidentsCh <-chan *salmon.Notification,
 			connErrorCh <-chan string,
 			connectionEventCh <-chan ConnectionEvent,
+			tunnelEvents <-chan TunnelEvent,
 		) {
 			defer c.wg.Done()
-			c.runWSClient(cfg, ongoingIncidentsCh, connErrorCh, connectionEventCh)
-		}(cfg, ongoingIncidentsCh, connErrorCh, connectionEventCh)
+			c.runWSClient(cfg, ongoingIncidentsCh, connErrorCh, connectionEventCh, tunnelEvents)
+		}(cfg, ongoingIncidentsCh, connErrorCh, connectionEventCh, tunnelEvents)
 	}
 
 	return c, nil
@@ -111,6 +132,9 @@ func (c *Combiner) Close() {
 		close(c.closeDone)
 		for _, client := range c.clients {
 			client.Close()
+		}
+		for _, tunnel := range c.tunnels {
+			tunnel.Close()
 		}
 		c.wg.Wait()
 	})
@@ -239,6 +263,7 @@ func (c *Combiner) runWSClient(
 	ongoingIncidentsCh <-chan *salmon.Notification,
 	connErrorCh <-chan string,
 	connectionEventCh <-chan ConnectionEvent,
+	tunnelEvents <-chan TunnelEvent,
 ) {
 	for {
 		select {
@@ -261,30 +286,46 @@ func (c *Combiner) runWSClient(
 			c.applyNotification(cfg.ID, notif)
 
 		case err := <-connErrorCh:
-			connKey := salmon.ItemKey(fmt.Sprintf("internal.connection.%s", cfg.ID))
-			state := salmon.ItemStateOK
-			if err != "" {
-				state = salmon.ItemStateError
+			c.applyInternalItem(salmon.ItemKey(fmt.Sprintf("internal.connection.%s", cfg.ID)), err)
+
+		case event := <-tunnelEvents:
+			err := event.Error
+			if event.Kind == TunnelEventReady {
+				err = ""
+			} else {
+				connectionEvent := ConnectionEvent{EventKind: EventKindDisconnected, Time: event.Time}
+				if c.params.ConnectionStatusHandler != nil {
+					c.params.ConnectionStatusHandler(cfg.ID, connectionEvent)
+				}
+				c.markServerIncidentsStale(cfg.ID, event.Time)
 			}
-
-			c.internalTrackerMtx.Lock()
-			notif := c.internalTracker.FeedItems(map[salmon.ItemKey]*salmon.Item{
-				connKey: &salmon.Item{
-					Key:     connKey,
-					State:   state,
-					Details: err,
-				},
-			})
-			c.internalTrackerMtx.Unlock()
-
-			// If nothing has changed, we're done.
-			if notif == nil {
-				break
-			}
-
-			c.applyNotification(IDInternal, notif)
+			c.applyInternalItem(salmon.ItemKey(fmt.Sprintf("internal.tunnel.%s", cfg.ID)), err)
 		}
 	}
+}
+
+func (c *Combiner) applyInternalItem(key salmon.ItemKey, err string) {
+	state := salmon.ItemStateOK
+	if err != "" {
+		state = salmon.ItemStateError
+	}
+
+	c.internalTrackerMtx.Lock()
+	notif := c.internalTracker.FeedItems(map[salmon.ItemKey]*salmon.Item{
+		key: &salmon.Item{
+			Key:     key,
+			State:   state,
+			Details: err,
+		},
+	})
+	c.internalTrackerMtx.Unlock()
+
+	// If nothing has changed, we're done.
+	if notif == nil {
+		return
+	}
+
+	c.applyNotification(IDInternal, notif)
 }
 
 func getPrefixedNotif(notif *salmon.Notification, prefix string) (*salmon.Notification, error) {

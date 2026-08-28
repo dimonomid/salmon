@@ -46,3 +46,43 @@ func TestLoadWatchConfigRejectsInvalidServerIDs(t *testing.T) {
 		t.Fatalf("loadConfig error = %v, want duplicate-ID error", err)
 	}
 }
+
+func TestLoadWatchConfigUsesTunnelOptions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "salmon-watch.yml")
+	data := `wsClient:
+  servers:
+    - id: remote
+      addr: 127.0.0.1:41992
+      tunnel:
+        ssh:
+          host: example.com
+          user: salmon
+          port: 2222
+          remoteSalmonAddr: 127.0.0.1:41990
+          extraSshArgs: ["-i", "/etc/salmon-watch/key"]
+    - id: custom
+      addr: 127.0.0.1:41993
+      tunnel:
+        customCommand:
+          command: ["my-tunnel", "--listen", "127.0.0.1:41993"]
+          readinessProbe:
+            containsOutput: "tunnel ready"
+`
+	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ssh := cfg.WSClient.Servers[0].Tunnel.SSH
+	if ssh.Host != "example.com" || ssh.User != "salmon" || ssh.Port != 2222 ||
+		ssh.RemoteSalmonAddr != "127.0.0.1:41990" || len(ssh.ExtraSSHArgs) != 2 {
+		t.Fatalf("SSH tunnel config = %#v", ssh)
+	}
+	custom := cfg.WSClient.Servers[1].Tunnel.CustomCommand
+	if len(custom.Command) != 3 || custom.ReadinessProbe == nil ||
+		custom.ReadinessProbe.ContainsOutput != "tunnel ready" {
+		t.Fatalf("custom tunnel config = %#v", custom)
+	}
+}
