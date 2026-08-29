@@ -6,7 +6,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/benbjohnson/clock"
 	"github.com/getlantern/systray"
@@ -23,6 +25,42 @@ type watchApp struct {
 	logger       *logs.Logger
 	core         *salmonWatchCore
 	statusServer *localStatusServer
+}
+
+// run starts the tray and turns SIGINT or SIGTERM into a normal tray exit, so
+// onExit gets a chance to tear down every owned resource.
+func (app *watchApp) run() {
+	terminationSignals := make(chan os.Signal, 1)
+	signal.Notify(terminationSignals, syscall.SIGINT, syscall.SIGTERM)
+	stopSignalHandler := make(chan struct{})
+	go waitForWatchTerminationSignal(terminationSignals, stopSignalHandler, func(sig os.Signal) {
+		// Restore the default handling before teardown starts, so a second signal
+		// can still terminate the process if graceful shutdown gets stuck.
+		signal.Stop(terminationSignals)
+		app.logger.Log(logs.Info, "Received %s; shutting down", sig)
+		systray.Quit()
+	})
+
+	// systray.Run must be the only operation that runs the tray app: it locks
+	// its OS thread before invoking onReady.
+	systray.Run(app.onReady, app.onExit)
+
+	signal.Stop(terminationSignals)
+	close(stopSignalHandler)
+}
+
+// waitForWatchTerminationSignal invokes onSignal for the first termination
+// signal, or returns when the tray has already exited normally.
+func waitForWatchTerminationSignal(
+	signals <-chan os.Signal,
+	stop <-chan struct{},
+	onSignal func(os.Signal),
+) {
+	select {
+	case sig := <-signals:
+		onSignal(sig)
+	case <-stop:
+	}
 }
 
 // onReady initializes the tray application after systray has locked its OS

@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/benbjohnson/clock"
-	"github.com/getlantern/systray"
 	"github.com/spf13/cobra"
 
 	"github.com/dimonomid/salmon/logs"
@@ -32,9 +31,7 @@ func newWatchRootCommand() *cobra.Command {
 				Sinks: []logs.LoggerSinkParams{{MinLevel: minLogLevel}},
 			}).WithNamespaceAppended("SalmonWatch")
 			app := &watchApp{config: cfg, clock: clk, logger: logger}
-			// systray.Run must be the only operation that runs the tray app: it
-			// locks its OS thread before invoking onReady.
-			systray.Run(app.onReady, app.onExit)
+			app.run()
 			return nil
 		},
 	}
