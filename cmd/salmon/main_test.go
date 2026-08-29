@@ -250,3 +250,26 @@ func TestLoadConfigUsesSystemdRuleNames(t *testing.T) {
 		t.Fatalf("rule names = %#v", got)
 	}
 }
+
+func TestLoadConfigUsesWebserverTLSOptions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "salmon.yml")
+	data := []byte(`core:
+  messengers:
+    - webserver:
+        listenAddress: 127.0.0.1:41990
+        tls:
+          certFile: /etc/salmon/tls/fullchain.pem
+          keyFile: /etc/salmon/tls/privkey.pem
+`)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tlsConfig := cfg.Core.Messengers[0].Webserver.TLS
+	if tlsConfig == nil || tlsConfig.CertFile != "/etc/salmon/tls/fullchain.pem" || tlsConfig.KeyFile != "/etc/salmon/tls/privkey.pem" {
+		t.Fatalf("TLS config = %#v", tlsConfig)
+	}
+}

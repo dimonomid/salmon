@@ -138,6 +138,34 @@ func TestServerReportsBindFailure(t *testing.T) {
 	<-firstDone
 }
 
+func TestServerRejectsInvalidTLSConfiguration(t *testing.T) {
+	tests := []struct {
+		name    string
+		tls     *server.ConfigTLS
+		wantErr string
+	}{
+		{name: "missing certificate", tls: &server.ConfigTLS{}, wantErr: "tls.certFile can't be empty"},
+		{name: "missing key", tls: &server.ConfigTLS{CertFile: "certificate.pem"}, wantErr: "tls.keyFile can't be empty"},
+		{
+			name:    "unreadable certificate pair",
+			tls:     &server.ConfigTLS{CertFile: "missing-certificate.pem", KeyFile: "missing-key.pem"},
+			wantErr: "loading TLS certificate and key",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := server.New(server.Params{
+				Common: messengers.Params{Logger: testLogger},
+				Config: server.Config{ListenAddress: "127.0.0.1:0", TLS: test.tls},
+			})
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("New() error = %v, want it to contain %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
 func TestServerShutdownClosesActiveWebsocket(t *testing.T) {
 	webserver, notifications, done := startServer(t, itemsboard.New())
 	connection := dialServer(t, webserver, nil)

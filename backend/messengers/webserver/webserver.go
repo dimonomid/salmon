@@ -1,9 +1,12 @@
 package webserver
 
 import (
+	"crypto/tls"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/dimonomid/salmon"
@@ -42,6 +45,15 @@ type websocketSubscription struct {
 	conn *wsConn
 }
 
+type httpServerErrorWriter struct {
+	logger *logs.Logger
+}
+
+func (w httpServerErrorWriter) Write(message []byte) (int, error) {
+	w.logger.Log(logs.Warning, "%s", strings.TrimSpace(string(message)))
+	return len(message), nil
+}
+
 const websocketSubscriptionQueueSize = 64
 
 func New(params Params) (*Webserver, error) {
@@ -51,6 +63,20 @@ func New(params Params) (*Webserver, error) {
 	params.Common.Logger = params.Common.Logger.WithNamespaceAppended("Webserver")
 	if params.Config.ListenAddress == "" {
 		return nil, errors.Errorf("listen address can't be empty")
+	}
+	var certificate *tls.Certificate
+	if params.Config.TLS != nil {
+		if params.Config.TLS.CertFile == "" {
+			return nil, errors.Errorf("tls.certFile can't be empty")
+		}
+		if params.Config.TLS.KeyFile == "" {
+			return nil, errors.Errorf("tls.keyFile can't be empty")
+		}
+		loadedCertificate, err := tls.LoadX509KeyPair(params.Config.TLS.CertFile, params.Config.TLS.KeyFile)
+		if err != nil {
+			return nil, errors.Annotate(err, "loading TLS certificate and key")
+		}
+		certificate = &loadedCertificate
 	}
 
 	s := &Webserver{
@@ -66,13 +92,20 @@ func New(params Params) (*Webserver, error) {
 	}
 
 	server := &http.Server{
-		Addr:    params.Config.ListenAddress,
-		Handler: handler,
+		Addr:     params.Config.ListenAddress,
+		Handler:  handler,
+		ErrorLog: log.New(httpServerErrorWriter{logger: params.Common.Logger}, "", 0),
 	}
 
 	listener, err := net.Listen("tcp", params.Config.ListenAddress)
 	if err != nil {
 		return nil, errors.Annotate(err, "listening")
+	}
+	if certificate != nil {
+		listener = tls.NewListener(listener, &tls.Config{
+			Certificates: []tls.Certificate{*certificate},
+			MinVersion:   tls.VersionTLS12,
+		})
 	}
 
 	s.server = server
@@ -81,7 +114,11 @@ func New(params Params) (*Webserver, error) {
 	go s.serve()
 	go s.run()
 
-	params.Common.Logger.Log(logs.Info, "Listening on %s", listener.Addr())
+	if certificate != nil {
+		params.Common.Logger.Log(logs.Info, "Listening with TLS on %s", listener.Addr())
+	} else {
+		params.Common.Logger.Log(logs.Info, "Listening on %s", listener.Addr())
+	}
 
 	return s, nil
 }

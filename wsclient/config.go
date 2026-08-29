@@ -22,8 +22,23 @@ type ConfigServer struct {
 	// Addr is an address of the salmon server, in the form "host:port".
 	Addr string `yaml:"addr"`
 
+	// TLS enables a secure WebSocket connection when present.
+	TLS *ConfigTLS `yaml:"tls,omitempty"`
+
 	// Tunnel optionally runs a persistent local tunnel command for this server.
 	Tunnel *ConfigTunnel `yaml:"tunnel,omitempty"`
+}
+
+// ConfigTLS controls certificate verification for a secure WebSocket
+// connection. An empty value uses the operating system's trusted CAs and the
+// hostname from ConfigServer.Addr.
+type ConfigTLS struct {
+	// CAFile is an optional path to additional PEM-encoded CA certificates to trust.
+	CAFile string `yaml:"caFile,omitempty"`
+
+	// ServerName optionally overrides the hostname verified in the server
+	// certificate. This is useful when Addr points at a local tunnel.
+	ServerName string `yaml:"serverName,omitempty"`
 }
 
 // ConfigTunnel describes a tunnel to the server. Exactly one field must be non-nil.

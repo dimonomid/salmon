@@ -86,3 +86,32 @@ func TestLoadWatchConfigUsesTunnelOptions(t *testing.T) {
 		t.Fatalf("custom tunnel config = %#v", custom)
 	}
 }
+
+func TestLoadWatchConfigUsesTLSOptions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "salmon-watch.yml")
+	data := `wsClient:
+  servers:
+    - id: remote
+      addr: 127.0.0.1:41990
+      tls:
+        caFile: /etc/salmon-watch/private-ca.pem
+        serverName: salmon.example.com
+    - id: public-ca
+      addr: salmon.example.net:41990
+      tls: {}
+`
+	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tlsConfig := cfg.WSClient.Servers[0].TLS
+	if tlsConfig == nil || tlsConfig.CAFile != "/etc/salmon-watch/private-ca.pem" || tlsConfig.ServerName != "salmon.example.com" {
+		t.Fatalf("TLS config = %#v", tlsConfig)
+	}
+	if cfg.WSClient.Servers[1].TLS == nil {
+		t.Fatal("empty tls object did not enable TLS")
+	}
+}

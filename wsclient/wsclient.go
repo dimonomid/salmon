@@ -2,9 +2,12 @@ package wsclient
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
 	"sync"
 	"time"
 
@@ -49,6 +52,10 @@ const (
 
 type WSClient struct {
 	params Params
+	// dialer contains the TLS trust configuration for this server.
+	dialer *websocket.Dialer
+	// scheme is ws for plain connections and wss when TLS is enabled.
+	scheme string
 	// interrupt is closed to stop dialing, reconnect delays, and the active
 	// connection.
 	interrupt chan struct{}
@@ -58,6 +65,16 @@ type WSClient struct {
 	done chan struct{}
 	// closeOnce makes Close safe to call from multiple cleanup paths.
 	closeOnce sync.Once
+}
+
+// websocketDialerConfig contains the dialer and URL scheme selected for one
+// server's plain or TLS WebSocket connection.
+type websocketDialerConfig struct {
+	// dialer carries the server's TLS trust and hostname-verification settings.
+	dialer *websocket.Dialer
+
+	// scheme is "ws" for a plain connection or "wss" for a TLS connection.
+	scheme string
 }
 
 type Params struct {
@@ -126,9 +143,15 @@ func New(params Params) (*WSClient, error) {
 		panic("EventCh is required")
 	}
 	params.Logger = params.Logger.WithNamespaceAppended("WSClient")
+	dialerConfig, err := websocketDialer(params.Config)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &WSClient{
 		params:    params,
+		dialer:    dialerConfig.dialer,
+		scheme:    dialerConfig.scheme,
 		interrupt: make(chan struct{}),
 		cancel:    cancel,
 		done:      make(chan struct{}),
@@ -137,6 +160,39 @@ func New(params Params) (*WSClient, error) {
 	go c.eventLoop(ctx)
 
 	return c, nil
+}
+
+// websocketDialer creates an independent dialer and loads any additional CA
+// certificates before the client's connection worker starts.
+func websocketDialer(config ConfigServer) (websocketDialerConfig, error) {
+	dialer := *websocket.DefaultDialer
+	if config.TLS == nil {
+		return websocketDialerConfig{dialer: &dialer, scheme: "ws"}, nil
+	}
+
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		ServerName: config.TLS.ServerName,
+	}
+	if config.TLS.CAFile != "" {
+		rootCAs, err := x509.SystemCertPool()
+		if err != nil {
+			return websocketDialerConfig{}, fmt.Errorf("load system CA certificates: %w", err)
+		}
+		if rootCAs == nil {
+			rootCAs = x509.NewCertPool()
+		}
+		caPEM, err := os.ReadFile(config.TLS.CAFile)
+		if err != nil {
+			return websocketDialerConfig{}, fmt.Errorf("read TLS CA file %q: %w", config.TLS.CAFile, err)
+		}
+		if !rootCAs.AppendCertsFromPEM(caPEM) {
+			return websocketDialerConfig{}, fmt.Errorf("TLS CA file %q contains no valid certificates", config.TLS.CAFile)
+		}
+		tlsConfig.RootCAs = rootCAs
+	}
+	dialer.TLSClientConfig = tlsConfig
+	return websocketDialerConfig{dialer: &dialer, scheme: "wss"}, nil
 }
 
 // Close stops the client and waits for its connection worker to exit.
@@ -184,7 +240,7 @@ mainLoop:
 		}
 
 		u := url.URL{
-			Scheme: "ws",
+			Scheme: c.scheme,
 			Host:   c.params.Config.Addr,
 			Path:   "/api/v1/wsconnect",
 		}
@@ -192,7 +248,7 @@ mainLoop:
 		ustr := u.String()
 
 		c.params.Logger.Log(logs.Info, "Connecting to %s", ustr)
-		conn, _, err := websocket.DefaultDialer.DialContext(ctx, ustr, nil)
+		conn, _, err := c.dialer.DialContext(ctx, ustr, nil)
 		if err != nil {
 			if c.tunnelUnavailable() {
 				connError = ""

@@ -86,6 +86,32 @@ func TestClientLogsReceivedServerIncidentTotal(t *testing.T) {
 	}
 }
 
+func TestClientRejectsUnusableCAFile(t *testing.T) {
+	invalidCAFile := t.TempDir() + "/invalid-ca.pem"
+	if err := os.WriteFile(invalidCAFile, []byte("not a certificate"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name    string
+		caFile  string
+		wantErr string
+	}{
+		{name: "missing", caFile: t.TempDir() + "/missing-ca.pem", wantErr: "read TLS CA file"},
+		{name: "invalid", caFile: invalidCAFile, wantErr: "contains no valid certificates"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := wsclient.New(wsclient.Params{
+				Config:  wsclient.ConfigServer{ID: "test", Addr: "127.0.0.1:41990", TLS: &wsclient.ConfigTLS{CAFile: test.caFile}},
+				Logger:  testLogger,
+				EventCh: make(chan wsclient.ServerEvent, 1),
+			})
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("New() error = %v, want it to contain %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
 func TestClientDisconnectsFromMalformedServerMessages(t *testing.T) {
 	tests := []struct {
 		name            string
