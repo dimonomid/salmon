@@ -142,11 +142,11 @@ func New(params Params) (*WSClient, error) {
 // Close stops the client and waits for its connection worker to exit.
 func (c *WSClient) Close() {
 	c.closeOnce.Do(func() {
-		c.params.Logger.Log(logs.Info, "Shutting down client for %s", c.params.Config.ID)
+		c.params.Logger.Log(logs.Info, "Shutting down")
 		close(c.interrupt)
 		c.cancel()
 		<-c.done
-		c.params.Logger.Log(logs.Info, "Client for %s shutdown complete", c.params.Config.ID)
+		c.params.Logger.Log(logs.Info, "Shutdown complete")
 	})
 }
 
@@ -191,24 +191,24 @@ mainLoop:
 
 		ustr := u.String()
 
-		c.params.Logger.Log(logs.Info, "Connecting to %s (%s)", c.params.Config.ID, ustr)
+		c.params.Logger.Log(logs.Info, "Connecting to %s", ustr)
 		conn, _, err := websocket.DefaultDialer.DialContext(ctx, ustr, nil)
 		if err != nil {
 			if c.tunnelUnavailable() {
 				connError = ""
-				c.params.Logger.Log(logs.Debug, "Connection to %s is waiting for its tunnel", c.params.Config.ID)
+				c.params.Logger.Log(logs.Debug, "Connection is waiting for its tunnel")
 				continue mainLoop
 			}
 			connError = err.Error()
 			if !c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindDisconnected, Time: time.Now()}) {
 				return
 			}
-			c.params.Logger.Log(logs.Warning, "Failed to connect to %s (%s): %s", c.params.Config.ID, ustr, err)
+			c.params.Logger.Log(logs.Warning, "Failed to connect to %s: %s", ustr, err)
 			continue mainLoop
 		}
 		conn.SetReadLimit(maxServerMessageBytes)
 
-		c.params.Logger.Log(logs.Info, "Connected to %s (%s)", c.params.Config.ID, ustr)
+		c.params.Logger.Log(logs.Info, "Connected to %s", ustr)
 		if !c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindConnected, Time: time.Now()}) {
 			_ = conn.Close()
 			return
@@ -242,7 +242,7 @@ mainLoop:
 			disconnectWithError := func(err error) {
 				connError = err.Error()
 				c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindDisconnected, Time: time.Now()})
-				c.params.Logger.Log(logs.Error, "Invalid message from %s: %s", c.params.Config.ID, err)
+				c.params.Logger.Log(logs.Error, "Invalid message: %s", err)
 				_ = conn.Close()
 			}
 			for {
@@ -250,16 +250,16 @@ mainLoop:
 				if err != nil {
 					if c.tunnelUnavailable() {
 						connError = ""
-						c.params.Logger.Log(logs.Debug, "Connection to %s closed with its tunnel", c.params.Config.ID)
+						c.params.Logger.Log(logs.Debug, "Connection closed with its tunnel")
 						return
 					}
 					connError = err.Error()
 					c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindDisconnected, Time: time.Now()})
 					select {
 					case <-c.interrupt:
-						c.params.Logger.Log(logs.Debug, "Connection to %s closed", c.params.Config.ID)
+						c.params.Logger.Log(logs.Debug, "Connection closed")
 					default:
-						c.params.Logger.Log(logs.Warning, "Connection to %s was lost: %s", c.params.Config.ID, err)
+						c.params.Logger.Log(logs.Warning, "Connection was lost: %s", err)
 					}
 					return
 				}
@@ -274,7 +274,7 @@ mainLoop:
 					if !c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindHeartbeat, Time: time.Now()}) {
 						return
 					}
-					c.params.Logger.Log(logs.Debug, "Received heartbeat from %s", c.params.Config.ID)
+					c.params.Logger.Log(logs.Debug, "Received heartbeat")
 					continue
 				}
 
@@ -306,18 +306,18 @@ mainLoop:
 					}
 					total, err := json.Marshal(notif.OngoingIncidents.Total)
 					if err != nil {
-						c.params.Logger.Log(logs.Error, "Failed to format incident %s from %s for logging: %s",
-							updateKind, c.params.Config.ID, err)
+						c.params.Logger.Log(logs.Error, "Failed to format incident %s for logging: %s",
+							updateKind, err)
 					} else {
-						c.params.Logger.Log(logs.Info, "Received incident %s from %s; ongoing incidents: %s",
-							updateKind, c.params.Config.ID, total)
+						c.params.Logger.Log(logs.Info, "Received incident %s; ongoing incidents: %s",
+							updateKind, total)
 					}
 
 					if !c.sendOngoingIncidents(notif) {
 						return
 					}
 				default:
-					c.params.Logger.Log(logs.Warning, "Ignoring unsupported event %q from %s", msgServer.Event, c.params.Config.ID)
+					c.params.Logger.Log(logs.Warning, "Ignoring unsupported event %q", msgServer.Event)
 				}
 			}
 		}()
@@ -331,7 +331,7 @@ mainLoop:
 				continue mainLoop
 
 			case <-c.interrupt:
-				c.params.Logger.Log(logs.Debug, "Closing connection to %s", c.params.Config.ID)
+				c.params.Logger.Log(logs.Debug, "Closing connection")
 				readTimer.Stop()
 				_ = conn.Close()
 				<-disconnected
@@ -421,10 +421,10 @@ func (c *WSClient) sendServerEvent(event ServerEvent) bool {
 	}
 
 	started := time.Now()
-	c.params.Logger.Log(logs.Warning, "%s event delivery from %s is blocked; waiting for the consumer", event.Kind, c.params.Config.ID)
+	c.params.Logger.Log(logs.Warning, "%s event delivery is blocked; waiting for the consumer", event.Kind)
 	select {
 	case c.params.EventCh <- event:
-		c.params.Logger.Log(logs.Warning, "%s event delivery from %s resumed after %s", event.Kind, c.params.Config.ID, time.Since(started))
+		c.params.Logger.Log(logs.Warning, "%s event delivery resumed after %s", event.Kind, time.Since(started))
 		return true
 	case <-c.interrupt:
 		return false

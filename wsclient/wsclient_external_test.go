@@ -76,7 +76,7 @@ func TestClientLogsReceivedServerIncidentTotal(t *testing.T) {
 	}
 	logText := string(data)
 	for _, want := range []string{
-		"[I] [WSClient] Received incident snapshot from test; ongoing incidents:",
+		"[I] [WSClient] Received incident snapshot; ongoing incidents:",
 		`"key":"disk"`,
 		`"details":"almost full"`,
 	} {

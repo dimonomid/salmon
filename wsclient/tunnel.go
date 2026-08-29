@@ -122,10 +122,10 @@ func NewTunnelSupervisor(params TunnelSupervisorParams) *TunnelSupervisor {
 // Close stops the active tunnel command and waits for the supervisor to exit.
 func (t *TunnelSupervisor) Close() {
 	t.once.Do(func() {
-		t.params.Logger.Log(logs.Info, "Shutting down tunnel for %s", t.params.ServerID)
+		t.params.Logger.Log(logs.Info, "Shutting down")
 		t.cancel()
 		<-t.done
-		t.params.Logger.Log(logs.Info, "Tunnel for %s shutdown complete", t.params.ServerID)
+		t.params.Logger.Log(logs.Info, "Shutdown complete")
 	})
 }
 
@@ -165,7 +165,7 @@ func (t *TunnelSupervisor) run(ctx context.Context) {
 	defer close(t.done)
 	for {
 		command := t.params.Command.Command
-		t.params.Logger.Log(logs.Info, "Starting tunnel for %s with %s", t.params.ServerID, command[0])
+		t.params.Logger.Log(logs.Info, "Starting tunnel with %s", command[0])
 		// TODO: Terminate subprocesses created by the tunnel command on restart or
 		// Watch shutdown. As documented, tunnel commands must not create
 		// subprocesses, so for now a command that violates this contract may leave
@@ -209,7 +209,7 @@ func (t *TunnelSupervisor) run(ctx context.Context) {
 
 		err := cmd.Wait()
 		if ctx.Err() != nil {
-			t.params.Logger.Log(logs.Debug, "Tunnel for %s stopped", t.params.ServerID)
+			t.params.Logger.Log(logs.Debug, "Tunnel stopped")
 			return
 		}
 		t.setUnready()
@@ -247,7 +247,7 @@ func (t *TunnelSupervisor) markReady(ctx context.Context, generationReady chan s
 	close(t.readyCh)
 	t.readyMtx.Unlock()
 
-	t.params.Logger.Log(logs.Info, "Tunnel for %s is ready", t.params.ServerID)
+	t.params.Logger.Log(logs.Info, "Tunnel is ready")
 }
 
 // setUnready replaces the readiness gate for the next process generation.
@@ -271,8 +271,7 @@ func (t *TunnelSupervisor) emit(ctx context.Context, event TunnelEvent) {
 
 // waitToRestart waits for the configured restart delay or cancellation.
 func (t *TunnelSupervisor) waitToRestart(ctx context.Context) bool {
-	t.params.Logger.Log(logs.Warning, "Tunnel for %s failed; restarting in %s",
-		t.params.ServerID, t.params.RestartDelay)
+	t.params.Logger.Log(logs.Warning, "Tunnel failed; restarting in %s", t.params.RestartDelay)
 	timer := time.NewTimer(t.params.RestartDelay)
 	defer timer.Stop()
 	select {

@@ -1,6 +1,8 @@
 package wsclient
 
 import (
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -173,6 +175,7 @@ func TestGetPrefixedNotifRejectsNullItem(t *testing.T) {
 
 func TestCombinerReportsTunnelFailureAsInternalIncident(t *testing.T) {
 	notifications := make(chan *salmon.Notification, 8)
+	logPath := t.TempDir() + "/watch.log"
 	combiner, err := NewCombiner(CombinerParams{
 		Config: Config{Servers: []ConfigServer{{
 			ID:   "remote",
@@ -182,8 +185,11 @@ func TestCombinerReportsTunnelFailureAsInternalIncident(t *testing.T) {
 				ReadinessProbe: &ConfigTunnelReadinessProbe{ContainsOutput: "ready"},
 			}},
 		}}},
-		Logger: logs.NewLogger(logs.LoggerParams{Clock: clock.New()}),
-		Clock:  clock.New(),
+		Logger: logs.NewLogger(logs.LoggerParams{
+			Clock: clock.New(),
+			Sinks: []logs.LoggerSinkParams{{Filepath: logPath, MinLevel: logs.Info}},
+		}),
+		Clock: clock.New(),
 		OngoingIncidentsHandler: func(notification *salmon.Notification) {
 			notifications <- notification
 		},
@@ -201,6 +207,13 @@ func TestCombinerReportsTunnelFailureAsInternalIncident(t *testing.T) {
 		}
 		if incidentWithKey(notification.OngoingIncidents.Total, "internal.connection.remote") != nil {
 			t.Fatalf("notification = %#v, unexpectedly contains connection incident", notification)
+		}
+		data, err := os.ReadFile(logPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := "[Combiner/Tunnel] Starting tunnel with sh (server_id:remote)"; !strings.Contains(string(data), want) {
+			t.Fatalf("log %q does not contain %q", data, want)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("tunnel failure did not produce an internal incident")

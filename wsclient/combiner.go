@@ -74,6 +74,7 @@ func NewCombiner(params CombinerParams) (*Combiner, error) {
 
 	for i, cfg := range c.params.Config.Servers {
 		serverEventCh := make(chan ServerEvent, 32)
+		serverLogger := params.Logger.WithContext("server_id", cfg.ID)
 
 		command, err := TunnelCommand(cfg)
 		if err != nil {
@@ -85,7 +86,7 @@ func NewCombiner(params CombinerParams) (*Combiner, error) {
 			tunnel = NewTunnelSupervisor(TunnelSupervisorParams{
 				ServerID: cfg.ID,
 				Command:  *command,
-				Logger:   params.Logger,
+				Logger:   serverLogger,
 				EventCh:  serverEventCh,
 			})
 			c.tunnels = append(c.tunnels, tunnel)
@@ -93,7 +94,7 @@ func NewCombiner(params CombinerParams) (*Combiner, error) {
 
 		wsc, err := New(Params{
 			Config: cfg,
-			Logger: params.Logger,
+			Logger: serverLogger,
 
 			EventCh:        serverEventCh,
 			ReconnectDelay: params.ReconnectDelay,
@@ -236,7 +237,7 @@ func (c *Combiner) ForgetStaleIncident(key string) bool {
 			updated = append(updated, items[i+1:]...)
 			c.totalByID[id] = updated
 
-			c.params.Logger.Log(logs.Info, "Forgot stale incident %s", key)
+			c.params.Logger.WithContext("server_id", id).Log(logs.Info, "Forgot stale incident %s", key)
 			if c.params.OngoingIncidentsHandler != nil {
 				c.params.OngoingIncidentsHandler(&salmon.Notification{
 					Time: c.params.Clock.Now(),
@@ -279,7 +280,8 @@ func (c *Combiner) applyServerEvent(id string, event ServerEvent) {
 	case ServerEventKindOngoingIncidents:
 		notif, err := getPrefixedNotif(event.OngoingIncidents, id)
 		if err != nil {
-			c.params.Logger.Log(logs.Error, "Ignoring invalid incident notification from %s: %s", id, err)
+			logger := c.params.Logger.WithContext("server_id", id)
+			logger.Log(logs.Error, "Ignoring invalid incident notification: %s", err)
 			return
 		}
 		c.applyNotification(id, notif)
@@ -301,7 +303,8 @@ func (c *Combiner) applyServerEvent(id string, event ServerEvent) {
 		c.applyInternalItem(salmon.ItemKey(fmt.Sprintf("internal.tunnel.%s", id)), err)
 
 	default:
-		c.params.Logger.Log(logs.Error, "Ignoring invalid event kind %q from %s", event.Kind, id)
+		logger := c.params.Logger.WithContext("server_id", id)
+		logger.Log(logs.Error, "Ignoring invalid event kind %q", event.Kind)
 	}
 }
 
