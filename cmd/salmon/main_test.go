@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io/ioutil"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -57,6 +58,7 @@ func TestRunnableCommandsRejectPositionalArguments(t *testing.T) {
 	for _, args := range [][]string{
 		{"unexpected"},
 		{"config", "init", "unexpected"},
+		{"user", "create", "unexpected"},
 		{"service", "install", "unexpected"},
 		{"setup", "unexpected"},
 	} {
@@ -65,6 +67,73 @@ func TestRunnableCommandsRejectPositionalArguments(t *testing.T) {
 		if err := command.Execute(); err == nil {
 			t.Errorf("command %q accepted an unexpected positional argument", args)
 		}
+	}
+}
+
+func TestCreateSalmonUserInstallsSysusersConfigurationAndCreatesAccount(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sysusers.d", "salmon.conf")
+	output := &bytes.Buffer{}
+	var calls [][]string
+	run := func(name string, args ...string) error {
+		if !strings.Contains(output.String(), "Created systemd sysusers configuration") {
+			t.Fatal("sysusers command ran before file creation was reported")
+		}
+		calls = append(calls, append([]string{name}, args...))
+		return nil
+	}
+
+	if err := createSalmonUserAt(output, path, run); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(data), string(mustSetupAsset("assets/setup/salmon.sysusers")); got != want {
+		t.Fatalf("sysusers configuration = %q, want %q", got, want)
+	}
+	if got, want := len(calls), 1; got != want {
+		t.Fatalf("command count = %d, want %d", got, want)
+	}
+	if got, want := strings.Join(calls[0], " "), "systemd-sysusers "+path; got != want {
+		t.Fatalf("command = %q, want %q", got, want)
+	}
+	if !strings.Contains(output.String(), "Created systemd sysusers configuration") {
+		t.Fatalf("unexpected command output: %q", output.String())
+	}
+}
+
+func TestRequireSalmonServiceAccountChecksUserAndGroup(t *testing.T) {
+	lookupUser := func(name string) (*user.User, error) {
+		if name != salmonUserName {
+			t.Fatalf("user name = %q, want %q", name, salmonUserName)
+		}
+		return &user.User{Username: name}, nil
+	}
+	lookupGroup := func(name string) (*user.Group, error) {
+		if name != salmonGroupName {
+			t.Fatalf("group name = %q, want %q", name, salmonGroupName)
+		}
+		return &user.Group{Name: name}, nil
+	}
+	if err := requireSalmonServiceAccountWith(lookupUser, lookupGroup); err != nil {
+		t.Fatal(err)
+	}
+
+	err := requireSalmonServiceAccountWith(
+		func(string) (*user.User, error) { return nil, user.UnknownUserError(salmonUserName) },
+		lookupGroup,
+	)
+	if err == nil || !strings.Contains(err.Error(), "sudo salmon user create") {
+		t.Fatalf("missing-user error = %v, want user-create guidance", err)
+	}
+
+	err = requireSalmonServiceAccountWith(
+		lookupUser,
+		func(string) (*user.Group, error) { return nil, user.UnknownGroupError(salmonGroupName) },
+	)
+	if err == nil || !strings.Contains(err.Error(), "sudo salmon user create") {
+		t.Fatalf("missing-group error = %v, want user-create guidance", err)
 	}
 }
 
@@ -90,7 +159,7 @@ func TestSalmonServiceTemplateIncludesExecutableAndConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"ExecStart=\"/usr/local/bin/salmon\" --config \"/etc/salmon.yml\"", "WantedBy=multi-user.target"} {
+	for _, want := range []string{"User=salmon", "Group=salmon", "ExecStart=\"/usr/local/bin/salmon\" --config \"/etc/salmon.yml\"", "WantedBy=multi-user.target"} {
 		if !strings.Contains(unit, want) {
 			t.Fatalf("unit %q does not contain %q", unit, want)
 		}

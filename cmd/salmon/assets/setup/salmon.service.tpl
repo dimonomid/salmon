@@ -8,6 +8,8 @@ After=network.target
 StartLimitIntervalSec=0
 
 [Service]
+User=salmon
+Group=salmon
 ExecStart={{ systemdUnitArgument .Executable }} --config {{ systemdUnitArgument .ConfigFilename }}
 Restart=always
 RestartSec=10

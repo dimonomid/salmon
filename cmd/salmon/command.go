@@ -36,6 +36,16 @@ func newRootCommand() *cobra.Command {
 		},
 	})
 
+	userCommand := &cobra.Command{Use: "user", Short: "Manage the system service account"}
+	userCommand.AddCommand(&cobra.Command{
+		Use:   "create",
+		Short: "Create the system user and group used by the Salmon service",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return createSalmonUser(cmd.OutOrStdout())
+		},
+	})
+
 	serviceCommand := &cobra.Command{Use: "service", Short: "Manage the systemd service"}
 	installCommand := &cobra.Command{
 		Use:   "install",
@@ -50,10 +60,13 @@ func newRootCommand() *cobra.Command {
 	setupCommand := &cobra.Command{
 		Use:   "setup",
 		Short: "Perform the complete setup",
-		Long:  "Equivalent to running `salmon config init` followed by `salmon service install`.",
+		Long:  "Equivalent to running `salmon config init`, `salmon user create`, and `salmon service install`.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := initializeSalmonConfig(cmd.OutOrStdout(), configFilename); err != nil {
+				return err
+			}
+			if err := createSalmonUser(cmd.OutOrStdout()); err != nil {
 				return err
 			}
 			if err := installSalmonService(cmd.OutOrStdout(), configFilename); err != nil {
@@ -63,6 +76,6 @@ func newRootCommand() *cobra.Command {
 		},
 	}
 
-	root.AddCommand(configCommand, serviceCommand, setupCommand)
+	root.AddCommand(configCommand, userCommand, serviceCommand, setupCommand)
 	return root
 }
