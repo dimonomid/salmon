@@ -132,6 +132,7 @@ func watchConfigReadError(configFilename string, err error) error {
 
 // onExit shuts down Salmon Watch resources after the tray exits.
 func (app *watchApp) onExit() {
+	app.logger.Log(logs.Info, "Shutting down")
 	if app.statusServer != nil {
 		if err := app.statusServer.Close(); err != nil {
 			app.logger.Log(logs.Error, "Failed to close status webserver: %s", err)

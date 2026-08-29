@@ -1,6 +1,7 @@
 package wsclient
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -51,6 +52,10 @@ type WSClient struct {
 	// interrupt is closed to stop dialing, reconnect delays, and the active
 	// connection.
 	interrupt chan struct{}
+	// cancel interrupts an in-progress WebSocket dial.
+	cancel context.CancelFunc
+	// done is closed after the connection worker exits.
+	done chan struct{}
 	// closeOnce makes Close safe to call from multiple cleanup paths.
 	closeOnce sync.Once
 }
@@ -121,23 +126,32 @@ func New(params Params) (*WSClient, error) {
 		panic("EventCh is required")
 	}
 	params.Logger = params.Logger.WithNamespaceAppended("WSClient")
+	ctx, cancel := context.WithCancel(context.Background())
 	c := &WSClient{
 		params:    params,
 		interrupt: make(chan struct{}),
+		cancel:    cancel,
+		done:      make(chan struct{}),
 	}
 
-	go c.eventLoop()
+	go c.eventLoop(ctx)
 
 	return c, nil
 }
 
-// Close stops the client and returns immediately; the owning Combiner waits
-// for the client worker to finish.
+// Close stops the client and waits for its connection worker to exit.
 func (c *WSClient) Close() {
-	c.closeOnce.Do(func() { close(c.interrupt) })
+	c.closeOnce.Do(func() {
+		c.params.Logger.Log(logs.Info, "Shutting down client for %s", c.params.Config.ID)
+		close(c.interrupt)
+		c.cancel()
+		<-c.done
+		c.params.Logger.Log(logs.Info, "Client for %s shutdown complete", c.params.Config.ID)
+	})
 }
 
-func (c *WSClient) eventLoop() {
+func (c *WSClient) eventLoop(ctx context.Context) {
+	defer close(c.done)
 	connError := ""
 
 mainLoop:
@@ -178,7 +192,7 @@ mainLoop:
 		ustr := u.String()
 
 		c.params.Logger.Log(logs.Info, "Connecting to %s (%s)", c.params.Config.ID, ustr)
-		conn, _, err := websocket.DefaultDialer.Dial(ustr, nil)
+		conn, _, err := websocket.DefaultDialer.DialContext(ctx, ustr, nil)
 		if err != nil {
 			if c.tunnelUnavailable() {
 				connError = ""
@@ -320,6 +334,7 @@ mainLoop:
 				c.params.Logger.Log(logs.Debug, "Closing connection to %s", c.params.Config.ID)
 				readTimer.Stop()
 				_ = conn.Close()
+				<-disconnected
 				return
 			}
 		}

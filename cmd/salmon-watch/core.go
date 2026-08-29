@@ -21,6 +21,7 @@ type salmonWatchCore struct {
 	onIconState     func(trayState)
 	// combiner owns all outbound Salmon connections and is closed with the core.
 	combiner          *wsclient.Combiner
+	closeOnce         sync.Once
 	serverStatusesMtx sync.RWMutex
 	serverStatuses    map[string]serverStatus
 	// serverIDs preserves the order of servers in the Salmon Watch configuration.
@@ -173,12 +174,16 @@ func (c *salmonWatchCore) publishServerStatuses() {
 
 // Close stops Salmon Watch's workers and waits for them to exit.
 func (c *salmonWatchCore) Close() {
-	if c.combiner != nil {
-		c.combiner.Close()
-	}
-	if c.incidentState != nil {
-		c.incidentState.Close()
-	}
+	c.closeOnce.Do(func() {
+		c.logger.Log(logs.Info, "Shutting down")
+		if c.combiner != nil {
+			c.combiner.Close()
+		}
+		if c.incidentState != nil {
+			c.incidentState.Close()
+		}
+		c.logger.Log(logs.Info, "Shutdown complete")
+	})
 }
 
 func (c *salmonWatchCore) onIncidentUpdate(snapshot incidentSnapshot) {

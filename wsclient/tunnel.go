@@ -121,8 +121,12 @@ func NewTunnelSupervisor(params TunnelSupervisorParams) *TunnelSupervisor {
 
 // Close stops the active tunnel command and waits for the supervisor to exit.
 func (t *TunnelSupervisor) Close() {
-	t.once.Do(t.cancel)
-	<-t.done
+	t.once.Do(func() {
+		t.params.Logger.Log(logs.Info, "Shutting down tunnel for %s", t.params.ServerID)
+		t.cancel()
+		<-t.done
+		t.params.Logger.Log(logs.Info, "Tunnel for %s shutdown complete", t.params.ServerID)
+	})
 }
 
 // WaitReady waits until the current tunnel process reports readiness. When a

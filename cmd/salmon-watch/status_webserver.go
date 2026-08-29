@@ -343,6 +343,7 @@ func (s *localStatusServer) Serve() error {
 
 func (s *localStatusServer) Close() error {
 	s.closeOnce.Do(func() {
+		s.statusWebserver.logger.Log(logs.Info, "Shutting down")
 		// WebSocket connections are hijacked from net/http, so mark subscription
 		// admission closed and drain them explicitly before closing the HTTP server.
 		s.statusWebserver.closeClients()
@@ -353,6 +354,7 @@ func (s *localStatusServer) Close() error {
 		} else if listenerErr != nil && !errors.Is(listenerErr, net.ErrClosed) {
 			s.closeErr = listenerErr
 		}
+		s.statusWebserver.logger.Log(logs.Info, "Shutdown complete")
 	})
 	return s.closeErr
 }

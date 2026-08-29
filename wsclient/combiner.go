@@ -121,6 +121,7 @@ func NewCombiner(params CombinerParams) (*Combiner, error) {
 // Close stops all Salmon connections and waits for their combiner loops.
 func (c *Combiner) Close() {
 	c.closeOnce.Do(func() {
+		c.params.Logger.Log(logs.Info, "Shutting down")
 		close(c.closeDone)
 		for _, client := range c.clients {
 			client.Close()
@@ -129,6 +130,7 @@ func (c *Combiner) Close() {
 			tunnel.Close()
 		}
 		c.wg.Wait()
+		c.params.Logger.Log(logs.Info, "Shutdown complete")
 	})
 }
 

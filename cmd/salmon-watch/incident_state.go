@@ -126,8 +126,12 @@ func newIncidentStateWithInterval(path string, expirationInterval time.Duration,
 // Close stops the snooze-expiration worker and waits for it to exit. It is
 // safe to call more than once.
 func (s *incidentState) Close() {
-	s.closeOnce.Do(func() { close(s.stop) })
-	<-s.done
+	s.closeOnce.Do(func() {
+		s.logger.Log(logs.Info, "Shutting down")
+		close(s.stop)
+		<-s.done
+		s.logger.Log(logs.Info, "Shutdown complete")
+	})
 }
 
 // newSnoozeState loads an existing state file or creates an empty one.
