@@ -168,6 +168,7 @@ func (t *TunnelSupervisor) run(ctx context.Context) {
 		// them running. Proper cleanup requires platform-specific process-tree
 		// handling and is intentionally deferred.
 		cmd := exec.CommandContext(ctx, command[0], command[1:]...)
+		isolateTunnelCommandFromTerminalSignals(cmd)
 		cmd.WaitDelay = tunnelCommandWaitDelay
 		stdout := &tailOutputWriter{}
 		stderr := &tailOutputWriter{}
