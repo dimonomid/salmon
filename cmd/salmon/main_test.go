@@ -19,7 +19,7 @@ func TestConfigInitCreatesConfigWithoutOverwritingIt(t *testing.T) {
 	output := &bytes.Buffer{}
 	command.SetOut(output)
 	command.SetErr(output)
-	command.SetArgs([]string{"config", "init", "--config", path})
+	command.SetArgs([]string{"setup", "create-config", "--config", path})
 	if err := command.Execute(); err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestConfigInitCreatesConfigWithoutOverwritingIt(t *testing.T) {
 	command = newRootCommand()
 	command.SetOut(output)
 	command.SetErr(output)
-	command.SetArgs([]string{"config", "init", "--config", path})
+	command.SetArgs([]string{"setup", "create-config", "--config", path})
 	if err := command.Execute(); err != nil {
 		t.Fatal(err)
 	}
@@ -57,15 +57,36 @@ func TestConfigInitCreatesConfigWithoutOverwritingIt(t *testing.T) {
 func TestRunnableCommandsRejectPositionalArguments(t *testing.T) {
 	for _, args := range [][]string{
 		{"unexpected"},
-		{"config", "init", "unexpected"},
-		{"user", "create", "unexpected"},
-		{"service", "install", "unexpected"},
 		{"setup", "unexpected"},
+		{"setup", "create-config", "unexpected"},
+		{"setup", "create-user", "unexpected"},
+		{"setup", "install-service", "unexpected"},
 	} {
 		command := newRootCommand()
 		command.SetArgs(args)
 		if err := command.Execute(); err == nil {
 			t.Errorf("command %q accepted an unexpected positional argument", args)
+		}
+	}
+}
+
+func TestSetupOperationsDoNotPolluteTopLevelCommands(t *testing.T) {
+	command := newRootCommand()
+	commands := command.Commands()
+	if len(commands) != 1 || commands[0].Name() != "setup" {
+		t.Fatalf("top-level commands = %v, want only setup", commands)
+	}
+	if !strings.Contains(commands[0].Long, "Perform the complete setup") {
+		t.Fatalf("setup long help = %q, want complete-setup description", commands[0].Long)
+	}
+
+	setupCommands := map[string]bool{}
+	for _, subcommand := range commands[0].Commands() {
+		setupCommands[subcommand.Name()] = true
+	}
+	for _, want := range []string{"create-config", "create-user", "install-service"} {
+		if !setupCommands[want] {
+			t.Errorf("setup subcommands = %v, missing %q", setupCommands, want)
 		}
 	}
 }
@@ -124,7 +145,7 @@ func TestRequireSalmonServiceAccountChecksUserAndGroup(t *testing.T) {
 		func(string) (*user.User, error) { return nil, user.UnknownUserError(salmonUserName) },
 		lookupGroup,
 	)
-	if err == nil || !strings.Contains(err.Error(), "sudo salmon user create") {
+	if err == nil || !strings.Contains(err.Error(), "sudo salmon setup create-user") {
 		t.Fatalf("missing-user error = %v, want user-create guidance", err)
 	}
 
@@ -132,7 +153,7 @@ func TestRequireSalmonServiceAccountChecksUserAndGroup(t *testing.T) {
 		lookupUser,
 		func(string) (*user.Group, error) { return nil, user.UnknownGroupError(salmonGroupName) },
 	)
-	if err == nil || !strings.Contains(err.Error(), "sudo salmon user create") {
+	if err == nil || !strings.Contains(err.Error(), "sudo salmon setup create-user") {
 		t.Fatalf("missing-group error = %v, want user-create guidance", err)
 	}
 }

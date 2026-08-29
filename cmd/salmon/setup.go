@@ -60,10 +60,10 @@ func requireSalmonServiceAccountWith(
 	lookupGroup func(string) (*user.Group, error),
 ) error {
 	if _, err := lookupUser(salmonUserName); err != nil {
-		return fmt.Errorf("service user %q does not exist; run `sudo salmon user create`: %w", salmonUserName, err)
+		return fmt.Errorf("service user %q does not exist; run `sudo salmon setup create-user`: %w", salmonUserName, err)
 	}
 	if _, err := lookupGroup(salmonGroupName); err != nil {
-		return fmt.Errorf("service group %q does not exist; run `sudo salmon user create`: %w", salmonGroupName, err)
+		return fmt.Errorf("service group %q does not exist; run `sudo salmon setup create-user`: %w", salmonGroupName, err)
 	}
 	return nil
 }
