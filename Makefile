@@ -4,7 +4,7 @@ all: salmon salmon-watch
 .PHONY: test
 test:
 	go test --count 1 --race ./...
-	node --test cmd/salmon-watch/jstest
+	node --test cmd/salmon-watch/jstest/*.js
 
 .PHONY: generate
 generate:
