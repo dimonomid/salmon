@@ -8,16 +8,18 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/dimonomid/salmon/internal/setup"
 )
 
-func TestWatchConfigInitCreatesConfig(t *testing.T) {
+func TestWatchSetupCreateConfigCreatesConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config", "salmon-watch.yml")
 	command := newWatchRootCommand()
 	output := &bytes.Buffer{}
 	command.SetOut(output)
 	command.SetErr(output)
-	command.SetArgs([]string{"config", "init", "--config", path})
+	command.SetArgs([]string{"setup", "create-config", "--config", path})
 	if err := command.Execute(); err != nil {
 		t.Fatal(err)
 	}
@@ -36,9 +38,9 @@ func TestWatchConfigInitCreatesConfig(t *testing.T) {
 func TestWatchRunnableCommandsRejectPositionalArguments(t *testing.T) {
 	for _, args := range [][]string{
 		{"unexpected"},
-		{"config", "init", "unexpected"},
-		{"autostart", "install", "unexpected"},
 		{"setup", "unexpected"},
+		{"setup", "create-config", "unexpected"},
+		{"setup", "install-autostart", "unexpected"},
 		{"generate-bearer-token"},
 		{"generate-bearer-token", "one", "two"},
 	} {
@@ -46,6 +48,30 @@ func TestWatchRunnableCommandsRejectPositionalArguments(t *testing.T) {
 		command.SetArgs(args)
 		if err := command.Execute(); err == nil {
 			t.Errorf("command %q accepted an unexpected positional argument", args)
+		}
+	}
+}
+
+func TestWatchSetupOperationsDoNotPolluteTopLevelCommands(t *testing.T) {
+	command := newWatchRootCommand()
+	topLevelCommands := map[string]*cobra.Command{}
+	for _, subcommand := range command.Commands() {
+		topLevelCommands[subcommand.Name()] = subcommand
+	}
+	if len(topLevelCommands) != 2 || topLevelCommands["setup"] == nil || topLevelCommands["generate-bearer-token"] == nil {
+		t.Fatalf("top-level commands = %v, want setup and generate-bearer-token", topLevelCommands)
+	}
+	if !strings.Contains(topLevelCommands["setup"].Long, "Perform the complete setup") {
+		t.Fatalf("setup long help = %q, want complete-setup description", topLevelCommands["setup"].Long)
+	}
+
+	setupCommands := map[string]bool{}
+	for _, subcommand := range topLevelCommands["setup"].Commands() {
+		setupCommands[subcommand.Name()] = true
+	}
+	for _, want := range []string{"create-config", "install-autostart"} {
+		if !setupCommands[want] {
+			t.Errorf("setup subcommands = %v, missing %q", setupCommands, want)
 		}
 	}
 }

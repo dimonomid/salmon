@@ -39,30 +39,10 @@ func newWatchRootCommand() *cobra.Command {
 	root.PersistentFlags().StringVar(&configFilename, "config", defaultWatchConfigPath(), "Config filename")
 	root.Flags().StringVar(&logLevel, "log-level", "info", "Minimum log level (debug, info, warning, or error)")
 
-	configCommand := &cobra.Command{Use: "config", Short: "Manage configuration"}
-	configCommand.AddCommand(&cobra.Command{
-		Use:   "init",
-		Short: "Create the default configuration if it does not exist",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return initializeWatchConfig(cmd.OutOrStdout(), configFilename)
-		},
-	})
-
-	autostartCommand := &cobra.Command{Use: "autostart", Short: "Manage desktop autostart"}
-	autostartCommand.AddCommand(&cobra.Command{
-		Use:   "install",
-		Short: "Install the desktop autostart entry",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return installWatchAutostart(cmd.OutOrStdout(), configFilename)
-		},
-	})
-
 	setupCommand := &cobra.Command{
 		Use:   "setup",
 		Short: "Perform the complete setup",
-		Long:  "Equivalent to running `salmon-watch config init` followed by `salmon-watch autostart install`.",
+		Long:  "Perform the complete setup by creating the default configuration and installing the desktop autostart entry. Run a setup subcommand to perform only one of these operations.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := initializeWatchConfig(cmd.OutOrStdout(), configFilename); err != nil {
@@ -74,6 +54,24 @@ func newWatchRootCommand() *cobra.Command {
 			return printWatchStartHint(cmd.OutOrStdout(), configFilename)
 		},
 	}
+	setupCommand.AddCommand(
+		&cobra.Command{
+			Use:   "create-config",
+			Short: "Create the default configuration if it does not exist",
+			Args:  cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				return initializeWatchConfig(cmd.OutOrStdout(), configFilename)
+			},
+		},
+		&cobra.Command{
+			Use:   "install-autostart",
+			Short: "Install the desktop autostart entry",
+			Args:  cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				return installWatchAutostart(cmd.OutOrStdout(), configFilename)
+			},
+		},
+	)
 
 	generateBearerTokenCommand := &cobra.Command{
 		Use:   "generate-bearer-token SERVER_ID",
@@ -90,6 +88,6 @@ func newWatchRootCommand() *cobra.Command {
 		"Token filename (defaults to tokens/SERVER_ID.token next to the salmon-watch configuration)",
 	)
 
-	root.AddCommand(configCommand, autostartCommand, setupCommand, generateBearerTokenCommand)
+	root.AddCommand(setupCommand, generateBearerTokenCommand)
 	return root
 }
