@@ -18,6 +18,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   build-linux:
@@ -41,6 +42,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc libgtk-3-dev libayatana-appindicator3-dev
 
+      - name: Determine artifact version and architecture
+        shell: bash
+        run: |
+          version="$(git describe --dirty --tags --always)"
+          echo "ARTIFACT_VERSION=${version#v}" >> "$GITHUB_ENV"
+          echo "ARTIFACT_ARCH=$(go env GOARCH)" >> "$GITHUB_ENV"
+
       - name: Build binaries
         shell: bash
         run: make salmon salmon-watch
@@ -48,10 +56,29 @@ jobs:
       - name: Package binaries
         run: |
           mkdir release
-          tar -czf "release/salmon_linux_${RUNNER_ARCH}.tar.gz" -C bin salmon
-          tar -czf "release/salmon-watch_linux_${RUNNER_ARCH}.tar.gz" -C bin salmon-watch
+          tar -czf "release/salmon_${ARTIFACT_VERSION}_linux_${ARTIFACT_ARCH}.tar.gz" -C bin salmon
+          tar -czf "release/salmon-watch_${ARTIFACT_VERSION}_linux_${ARTIFACT_ARCH}.tar.gz" -C bin salmon-watch
 
-      - name: Upload binaries
+      - name: Install Syft
+        uses: anchore/sbom-action/download-syft@v0.24.2
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.0
+        with:
+          cosign-release: v3.1.2
+
+      - name: Generate SBOMs and signatures
+        run: |
+          bash util/prepare_release_artifact.sh \
+            "release/salmon_${ARTIFACT_VERSION}_linux_${ARTIFACT_ARCH}.tar.gz" \
+            bin/salmon \
+            "salmon_${ARTIFACT_VERSION}_linux_${ARTIFACT_ARCH}"
+          bash util/prepare_release_artifact.sh \
+            "release/salmon-watch_${ARTIFACT_VERSION}_linux_${ARTIFACT_ARCH}.tar.gz" \
+            bin/salmon-watch \
+            "salmon-watch_${ARTIFACT_VERSION}_linux_${ARTIFACT_ARCH}"
+
+      - name: Upload intermediary Linux artifacts
         uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs.artifact_prefix }}-linux
@@ -88,6 +115,13 @@ jobs:
         shell: pwsh
         run: choco install make --no-progress --yes
 
+      - name: Determine artifact version and architecture
+        shell: bash
+        run: |
+          version="$(git describe --dirty --tags --always)"
+          echo "ARTIFACT_VERSION=${version#v}" >> "$GITHUB_ENV"
+          echo "ARTIFACT_ARCH=$(go env GOARCH)" >> "$GITHUB_ENV"
+
       - name: Build salmon-watch
         shell: bash
         run: make salmon-watch
@@ -96,19 +130,100 @@ jobs:
         if: matrix.os == 'macos'
         run: |
           mkdir release
-          tar -czf "release/salmon-watch_macos_${RUNNER_ARCH}.tar.gz" -C bin salmon-watch
+          tar -czf "release/salmon-watch_${ARTIFACT_VERSION}_darwin_${ARTIFACT_ARCH}.tar.gz" -C bin salmon-watch
 
       - name: Package Windows binary
         if: matrix.os == 'windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path release
-          Compress-Archive -Path bin/salmon-watch.exe -DestinationPath "release/salmon-watch_windows_${env:RUNNER_ARCH}.zip"
+          Compress-Archive -Path bin/salmon-watch.exe -DestinationPath "release/salmon-watch_${env:ARTIFACT_VERSION}_windows_${env:ARTIFACT_ARCH}.zip"
 
-      - name: Upload binary
+      - name: Install Syft
+        uses: anchore/sbom-action/download-syft@v0.24.2
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.0
+        with:
+          cosign-release: v3.1.2
+
+      - name: Generate SBOM and signatures
+        shell: bash
+        run: |
+          if [[ "${{ matrix.os }}" == "windows" ]]; then
+            archive="release/salmon-watch_${ARTIFACT_VERSION}_windows_${ARTIFACT_ARCH}.zip"
+            binary="bin/salmon-watch.exe"
+            signature_basename="salmon-watch.exe_${ARTIFACT_VERSION}_windows_${ARTIFACT_ARCH}"
+          else
+            archive="release/salmon-watch_${ARTIFACT_VERSION}_darwin_${ARTIFACT_ARCH}.tar.gz"
+            binary="bin/salmon-watch"
+            signature_basename="salmon-watch_${ARTIFACT_VERSION}_darwin_${ARTIFACT_ARCH}"
+          fi
+          bash util/prepare_release_artifact.sh "$archive" "$binary" "$signature_basename"
+
+      - name: Upload intermediary platform artifacts
         uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs.artifact_prefix }}-${{ matrix.os }}
           path: release/*
           if-no-files-found: error
           retention-days: ${{ inputs.retention_days }}
+
+  assemble-artifacts:
+    name: Assemble release artifacts
+    needs:
+      - build-linux
+      - build-salmon-watch
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_ref }}
+
+      - name: Download binaries and SBOMs
+        uses: actions/download-artifact@v7
+        with:
+          path: release
+          pattern: ${{ inputs.artifact_prefix }}-*
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: bash util/prepare_release_checksums.sh release
+
+      - name: Show release contents
+        run: |
+          {
+            echo "### Release contents"
+            echo
+            echo '```text'
+            find release -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload combined release artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ inputs.artifact_prefix }}-artifacts
+          path: release/*
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention_days }}
+
+      - name: Remove intermediary workflow artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_PREFIX: ${{ inputs.artifact_prefix }}
+        run: |
+          for suffix in linux macos windows; do
+            artifact_name="${ARTIFACT_PREFIX}-${suffix}"
+            artifact_id="$(
+              gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+                --jq ".artifacts[] | select(.name == \"${artifact_name}\") | .id"
+            )"
+            if [[ -n "$artifact_id" ]]; then
+              gh api --method DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}"
+            fi
+          done

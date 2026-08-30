@@ -5,7 +5,7 @@ COMMIT != git rev-parse HEAD
 DATE != date -u +"%Y-%m-%dT%H:%M:%SZ"
 GOEXE != go env GOEXE
 
-LDFLAGS := \
+LDFLAGS := -s -w \
 	-X 'github.com/dimonomid/salmon/version.version=$(patsubst v%,%,$(VERSION))' \
 	-X 'github.com/dimonomid/salmon/version.commit=$(COMMIT)' \
 	-X 'github.com/dimonomid/salmon/version.date=$(DATE)' \
