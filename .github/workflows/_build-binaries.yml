@@ -28,6 +28,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           ref: ${{ inputs.source_ref }}
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -41,16 +42,14 @@ jobs:
           sudo apt-get install -y gcc libgtk-3-dev libayatana-appindicator3-dev
 
       - name: Build binaries
-        run: |
-          mkdir dist
-          go build -trimpath -o dist/salmon ./cmd/salmon
-          go build -trimpath -o dist/salmon-watch ./cmd/salmon-watch
+        shell: bash
+        run: make salmon salmon-watch
 
       - name: Package binaries
         run: |
           mkdir release
-          tar -czf "release/salmon_linux_${RUNNER_ARCH}.tar.gz" -C dist salmon
-          tar -czf "release/salmon-watch_linux_${RUNNER_ARCH}.tar.gz" -C dist salmon-watch
+          tar -czf "release/salmon_linux_${RUNNER_ARCH}.tar.gz" -C bin salmon
+          tar -czf "release/salmon-watch_linux_${RUNNER_ARCH}.tar.gz" -C bin salmon-watch
 
       - name: Upload binaries
         uses: actions/upload-artifact@v6
@@ -68,16 +67,15 @@ jobs:
         include:
           - os: macos
             runner: macos-latest
-            output: salmon-watch
           - os: windows
             runner: windows-latest
-            output: salmon-watch.exe
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
         with:
           ref: ${{ inputs.source_ref }}
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -85,24 +83,27 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Create output directory
-        run: mkdir dist
+      - name: Install make
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: choco install make --no-progress --yes
 
       - name: Build salmon-watch
-        run: go build -trimpath -o "dist/${{ matrix.output }}" ./cmd/salmon-watch
+        shell: bash
+        run: make salmon-watch
 
       - name: Package macOS binary
         if: matrix.os == 'macos'
         run: |
           mkdir release
-          tar -czf "release/salmon-watch_macos_${RUNNER_ARCH}.tar.gz" -C dist salmon-watch
+          tar -czf "release/salmon-watch_macos_${RUNNER_ARCH}.tar.gz" -C bin salmon-watch
 
       - name: Package Windows binary
         if: matrix.os == 'windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path release
-          Compress-Archive -Path dist/salmon-watch.exe -DestinationPath "release/salmon-watch_windows_${env:RUNNER_ARCH}.zip"
+          Compress-Archive -Path bin/salmon-watch.exe -DestinationPath "release/salmon-watch_windows_${env:RUNNER_ARCH}.zip"
 
       - name: Upload binary
         uses: actions/upload-artifact@v6

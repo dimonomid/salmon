@@ -4,6 +4,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dimonomid/salmon/logs"
+	"github.com/dimonomid/salmon/version"
 )
 
 // newRootCommand constructs the Salmon command-line interface.
@@ -13,6 +14,7 @@ func newRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:          "salmon",
 		Short:        "Monitor system health and publish its status",
+		Version:      version.FullDescription("Salmon"),
 		SilenceUsage: true,
 		Args:         cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -23,6 +25,7 @@ func newRootCommand() *cobra.Command {
 			return runSalmon(configFilename, minLogLevel)
 		},
 	}
+	root.SetVersionTemplate("{{.Version}}")
 	root.PersistentFlags().StringVar(&configFilename, "config", defaultSalmonConfig, "Config filename")
 	root.Flags().StringVar(&logLevel, "log-level", "info", "Minimum log level (debug, info, warning, or error)")
 

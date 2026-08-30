@@ -5,6 +5,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dimonomid/salmon/logs"
+	"github.com/dimonomid/salmon/version"
 )
 
 // newWatchRootCommand constructs the Salmon Watch command-line interface.
@@ -15,6 +16,7 @@ func newWatchRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:          "salmon-watch",
 		Short:        "Show Salmon status in the desktop tray",
+		Version:      version.FullDescription("Salmon Watch"),
 		SilenceUsage: true,
 		Args:         cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -36,6 +38,7 @@ func newWatchRootCommand() *cobra.Command {
 			return nil
 		},
 	}
+	root.SetVersionTemplate("{{.Version}}")
 	root.PersistentFlags().StringVar(&configFilename, "config", defaultWatchConfigPath(), "Config filename")
 	root.Flags().StringVar(&logLevel, "log-level", "info", "Minimum log level (debug, info, warning, or error)")
 

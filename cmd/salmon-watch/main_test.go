@@ -90,6 +90,21 @@ func TestWatchLogLevelFlagDefaultsToInfoAndRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestWatchVersionFlagPrintsBuildInformation(t *testing.T) {
+	command := newWatchRootCommand()
+	output := &bytes.Buffer{}
+	command.SetOut(output)
+	command.SetArgs([]string{"--version"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Salmon Watch dev\n", "Commit: none\n", "Build time: unknown\n", "Built by: unknown\n", "GOOS: ", "CGO: "} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("version output %q does not contain %q", output.String(), want)
+		}
+	}
+}
+
 func TestWatchStartCommand(t *testing.T) {
 	got, err := watchStartCommand(defaultWatchConfigPath())
 	if err != nil {

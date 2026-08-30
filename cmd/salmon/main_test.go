@@ -172,6 +172,21 @@ func TestLogLevelFlagDefaultsToInfoAndRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestVersionFlagPrintsBuildInformation(t *testing.T) {
+	command := newRootCommand()
+	output := &bytes.Buffer{}
+	command.SetOut(output)
+	command.SetArgs([]string{"--version"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Salmon dev\n", "Commit: none\n", "Build time: unknown\n", "Built by: unknown\n", "GOOS: ", "CGO: "} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("version output %q does not contain %q", output.String(), want)
+		}
+	}
+}
+
 func TestSalmonServiceTemplateIncludesExecutableAndConfig(t *testing.T) {
 	unit, err := setup.RenderSystemdUnitTemplate("salmon.service.tpl", string(mustSetupAsset("assets/setup/salmon.service.tpl")), struct {
 		Executable     string
