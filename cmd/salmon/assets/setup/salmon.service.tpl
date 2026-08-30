@@ -1,5 +1,5 @@
 [Unit]
-Description=Salmon
+Description=Salmon: system health monitor
 After=network.target
 
 # Salmon provides monitoring, so a transient failure or unexpected clean exit
