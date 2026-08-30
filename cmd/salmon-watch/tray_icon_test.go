@@ -90,6 +90,65 @@ func TestUnknownTrayIconIsGrayscaleWithOKIconAlpha(t *testing.T) {
 	}
 }
 
+func TestUnknownTrayIconShowsServerInitializationProgress(t *testing.T) {
+	combiner := newIconCombiner()
+	okIcon, err := png.Decode(bytes.NewReader(combiner.iconForState(overallStateOK)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknownIcon, err := png.Decode(bytes.NewReader(combiner.iconForState(overallStateUnknown)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := combiner.Icon(trayState{Alerting: overallStateUnknown, ServerCount: 4}); !bytes.Equal(got, combiner.iconForState(overallStateOK)) {
+		t.Fatal("zero unknown servers did not produce the OK icon")
+	}
+	if got := combiner.Icon(trayState{Alerting: overallStateUnknown, UnknownServerCount: 4, ServerCount: 4}); !bytes.Equal(got, combiner.iconForState(overallStateUnknown)) {
+		t.Fatal("all unknown servers did not produce the unknown icon")
+	}
+
+	points := map[string]image.Point{
+		"top right":    image.Pt(25, 10),
+		"bottom right": image.Pt(30, 25),
+		"bottom left":  image.Pt(15, 30),
+		"top left":     image.Pt(10, 15),
+	}
+	tests := []struct {
+		name       string
+		unknown    int
+		grayPoints map[string]bool
+	}{
+		{name: "one quarter unknown", unknown: 1, grayPoints: map[string]bool{"top left": true}},
+		{name: "three quarters unknown", unknown: 3, grayPoints: map[string]bool{
+			"bottom right": true, "bottom left": true, "top left": true,
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := png.Decode(bytes.NewReader(combiner.Icon(trayState{
+				Alerting:           overallStateUnknown,
+				UnknownServerCount: test.unknown,
+				ServerCount:        4,
+			})))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for name, point := range points {
+				wantImage := okIcon
+				if test.grayPoints[name] {
+					wantImage = unknownIcon
+				}
+				gotColor := color.NRGBAModel.Convert(got.At(point.X, point.Y)).(color.NRGBA)
+				wantColor := color.NRGBAModel.Convert(wantImage.At(point.X, point.Y)).(color.NRGBA)
+				if gotColor != wantColor {
+					t.Errorf("%s pixel = %#v, want %#v", name, gotColor, wantColor)
+				}
+			}
+		})
+	}
+}
+
 func TestTrayStatusTitle(t *testing.T) {
 	if got, want := trayStatusTitle(trayState{}), "Status: 0 incidents"; got != want {
 		t.Fatalf("got %q, want %q", got, want)
@@ -157,8 +216,9 @@ func TestOverallStateRemainsUnknownUntilEveryServerHasAnOutcome(t *testing.T) {
 		EventKind: wsclient.EventKindConnected,
 		Time:      time.Now(),
 	})
-	if got := received[len(received)-1].Alerting; got != overallStateUnknown {
-		t.Fatalf("state after first server connects = %s, want unknown", got)
+	state := received[len(received)-1]
+	if state.Alerting != overallStateUnknown || state.UnknownServerCount != 2 || state.ServerCount != 3 {
+		t.Fatalf("state after first server connects = %#v, want unknown with 2/3 servers pending", state)
 	}
 
 	core.onConnectionEvent("second", wsclient.ConnectionEvent{
@@ -173,8 +233,9 @@ func TestOverallStateRemainsUnknownUntilEveryServerHasAnOutcome(t *testing.T) {
 		Item: salmon.Item{Key: "internal.connection.second", State: salmon.ItemStateError},
 	}
 	core.incidentState.Update([]*salmon.ItemWContext{connectionIncident})
-	if got := received[len(received)-1].Alerting; got != overallStateInternalError {
-		t.Fatalf("state with a connection failure = %s, want internal error", got)
+	state = received[len(received)-1]
+	if state.Alerting != overallStateInternalError || state.UnknownServerCount != 1 || state.ServerCount != 3 {
+		t.Fatalf("state with a connection failure = %#v, want internal error with 1/3 servers pending", state)
 	}
 
 	core.onConnectionEvent("second", wsclient.ConnectionEvent{
@@ -182,16 +243,18 @@ func TestOverallStateRemainsUnknownUntilEveryServerHasAnOutcome(t *testing.T) {
 		Time:      time.Now(),
 	})
 	core.incidentState.Update(nil)
-	if got := received[len(received)-1].Alerting; got != overallStateUnknown {
-		t.Fatalf("state after second server reconnects with third pending = %s, want unknown", got)
+	state = received[len(received)-1]
+	if state.Alerting != overallStateUnknown || state.UnknownServerCount != 1 || state.ServerCount != 3 {
+		t.Fatalf("state after second server reconnects = %#v, want unknown with 1/3 servers pending", state)
 	}
 
 	core.onConnectionEvent("third", wsclient.ConnectionEvent{
 		EventKind: wsclient.EventKindConnected,
 		Time:      time.Now(),
 	})
-	if got := received[len(received)-1].Alerting; got != overallStateOK {
-		t.Fatalf("state after every server responds = %s, want ok", got)
+	state = received[len(received)-1]
+	if state.Alerting != overallStateOK || state.UnknownServerCount != 0 || state.ServerCount != 3 {
+		t.Fatalf("state after every server responds = %#v, want OK with 0/3 servers pending", state)
 	}
 }
 

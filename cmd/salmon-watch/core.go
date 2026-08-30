@@ -42,10 +42,16 @@ type serverStatus struct {
 	hasConnectedOrFailed bool `json:"-"`
 }
 
-// trayState is the already-aggregated incident information needed by the tray
-// UI. Snoozed is nil when no snoozed incidents need an icon overlay.
+// trayState is the already-aggregated incident and server-initialization
+// information needed by the tray UI. Snoozed is nil when no snoozed incidents
+// need an icon overlay.
 type trayState struct {
-	Alerting      overallState
+	Alerting overallState
+	// UnknownServerCount is the number of configured servers that have neither
+	// connected nor failed yet during this run.
+	UnknownServerCount int
+	// ServerCount is the total number of configured servers.
+	ServerCount   int
 	AlertingCount int
 	Snoozed       *overallState
 	SnoozedCount  int
@@ -193,10 +199,13 @@ func (c *salmonWatchCore) Close() {
 func (c *salmonWatchCore) onIncidentUpdate(snapshot incidentSnapshot) {
 	c.statusWebserver.SetOngoingIncidents(snapshot)
 	if c.onIconState != nil {
+		unknownServerCount, serverCount := c.getServerInitializationCounts()
 		state := trayState{
-			Alerting:      c.getAlertingOverallStateFromItems(snapshot.Alerting),
-			AlertingCount: len(snapshot.Alerting),
-			SnoozedCount:  len(snapshot.Snoozed),
+			Alerting:           getAlertingOverallStateFromItems(snapshot.Alerting, unknownServerCount),
+			UnknownServerCount: unknownServerCount,
+			ServerCount:        serverCount,
+			AlertingCount:      len(snapshot.Alerting),
+			SnoozedCount:       len(snapshot.Snoozed),
 		}
 		if len(snapshot.Snoozed) > 0 {
 			snoozed := getOverallStateFromItems(snapshot.SnoozedItems())
@@ -207,21 +216,27 @@ func (c *salmonWatchCore) onIncidentUpdate(snapshot incidentSnapshot) {
 }
 
 // getAlertingOverallStateFromItems keeps an otherwise healthy state unknown
-// until each configured server has either connected or failed at least once.
-func (c *salmonWatchCore) getAlertingOverallStateFromItems(items []salmon.ItemWContext) overallState {
+// while at least one configured server has neither connected nor failed.
+func getAlertingOverallStateFromItems(items []salmon.ItemWContext, unknownServerCount int) overallState {
 	state := getOverallStateFromItems(items)
-	if state != overallStateOK {
-		return state
+	if state == overallStateOK && unknownServerCount > 0 {
+		return overallStateUnknown
 	}
+	return state
+}
 
+// getServerInitializationCounts returns the pending and total configured
+// server counts from one consistent status snapshot.
+func (c *salmonWatchCore) getServerInitializationCounts() (unknown, total int) {
 	c.serverStatusesMtx.RLock()
 	defer c.serverStatusesMtx.RUnlock()
+	total = len(c.serverStatuses)
 	for _, status := range c.serverStatuses {
 		if !status.hasConnectedOrFailed {
-			return overallStateUnknown
+			unknown++
 		}
 	}
-	return overallStateOK
+	return unknown, total
 }
 
 func (c *salmonWatchCore) onNotification(notif *salmon.Notification) {
@@ -245,6 +260,7 @@ func (c *salmonWatchCore) onNotification(notif *salmon.Notification) {
 		}
 	}
 
-	state := c.getAlertingOverallStateFromItems(snapshot.Alerting)
+	unknownServerCount, _ := c.getServerInitializationCounts()
+	state := getAlertingOverallStateFromItems(snapshot.Alerting, unknownServerCount)
 	c.logger.Log(logs.Info, "Overall state is %s (%d alerting, %d snoozed)", state, len(snapshot.Alerting), len(snapshot.Snoozed))
 }

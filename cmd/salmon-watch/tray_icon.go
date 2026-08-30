@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"image"
+	"image/color"
 	"image/draw"
 	"image/png"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -22,30 +24,28 @@ var (
 	iconFlashStop chan struct{}
 )
 
-// iconCombiner supplies the base tray icons and composes a snoozed overlay
-// when needed. Its cache and lock are private so callers only need to ask for
-// the icon that represents a trayState.
+// iconCombiner supplies the base tray icons, renders initialization progress,
+// and composes a snoozed overlay when needed. Its cache and lock are private so
+// callers only need to ask for the icon that represents a trayState.
 type iconCombiner struct {
 	icons       map[overallState][]byte
 	transparent []byte
 
 	// composedIcons avoids decoding and encoding PNGs for repeated snapshots
-	// with the same alerting and snoozed states. It is populated lazily because
-	// most state combinations are never needed.
+	// with the same alerting, initialization, and snoozed states. It is
+	// populated lazily because most state combinations are never needed.
 	composedIconsMtx sync.Mutex
 	composedIcons    map[trayIconKey][]byte
 }
 
-// trayIconKey identifies a cached composition of a main alerting icon and a
-// lower-right snoozed overlay icon. It avoids recomposing the same small set of
-// state combinations for every incident update.
-//
-// A key is only constructed when there are snoozed incidents. When there are
-// none, no snoozed state sentinel is used: the unmodified alerting icon is
-// returned directly instead.
+// trayIconKey identifies a cached initialization-sector and snoozed-overlay
+// composition. Server counts matter only when alerting is unknown.
 type trayIconKey struct {
-	alerting overallState
-	snoozed  overallState
+	alerting           overallState
+	snoozed            overallState
+	hasSnoozed         bool
+	unknownServerCount int
+	serverCount        int
 }
 
 type overallState int
@@ -158,23 +158,48 @@ func trayStatusTitle(state trayState) string {
 	return title
 }
 
-// Icon returns the tray icon representing state. An icon without a snoozed
-// overlay is returned directly; compositions are cached by both states.
+// Icon returns the tray icon representing state. Solid icons without a
+// snoozed overlay are returned directly; generated combinations are cached.
 func (c *iconCombiner) Icon(state trayState) []byte {
-	if state.Snoozed == nil {
+	if state.Alerting != overallStateUnknown && state.Snoozed == nil {
 		return c.iconForState(state.Alerting)
 	}
 
-	key := trayIconKey{alerting: state.Alerting, snoozed: *state.Snoozed}
+	key := trayIconKey{alerting: state.Alerting}
+	if state.Alerting == overallStateUnknown {
+		key.unknownServerCount = state.UnknownServerCount
+		key.serverCount = state.ServerCount
+	}
+	if state.Snoozed != nil {
+		key.hasSnoozed = true
+		key.snoozed = *state.Snoozed
+	}
 	c.composedIconsMtx.Lock()
 	defer c.composedIconsMtx.Unlock()
 	if icon, exists := c.composedIcons[key]; exists {
 		return icon
 	}
 
-	icon := composeIcon(c.iconForState(state.Alerting), c.iconForState(*state.Snoozed))
+	icon := c.iconForAlertingState(state)
+	if state.Snoozed != nil {
+		icon = composeIcon(icon, c.iconForState(*state.Snoozed))
+	}
 	c.composedIcons[key] = icon
 	return icon
+}
+
+// iconForAlertingState adds initialization progress to an unknown icon. Green
+// starts at 12 o'clock and grows clockwise; the remaining sector is gray.
+func (c *iconCombiner) iconForAlertingState(state trayState) []byte {
+	if state.Alerting != overallStateUnknown {
+		return c.iconForState(state.Alerting)
+	}
+	return composeInitializationIcon(
+		c.iconForState(overallStateOK),
+		c.iconForState(overallStateUnknown),
+		state.UnknownServerCount,
+		state.ServerCount,
+	)
 }
 
 func (c *iconCombiner) iconForState(state overallState) []byte {
@@ -183,6 +208,74 @@ func (c *iconCombiner) iconForState(state overallState) []byte {
 		panic(fmt.Sprintf("invalid state %d", state))
 	}
 	return icon
+}
+
+// composeInitializationIcon fills the known-server fraction clockwise from 12
+// o'clock with green. A small sampling grid antialiases diagonal boundaries.
+func composeInitializationIcon(okIcon, unknownIcon []byte, unknownServerCount, serverCount int) []byte {
+	if unknownServerCount <= 0 && serverCount > 0 {
+		return okIcon
+	}
+	if serverCount <= 0 || unknownServerCount >= serverCount {
+		return unknownIcon
+	}
+
+	okImage, err := png.Decode(bytes.NewReader(okIcon))
+	if err != nil {
+		panic(fmt.Sprintf("decode OK tray icon: %s", err))
+	}
+	unknownImage, err := png.Decode(bytes.NewReader(unknownIcon))
+	if err != nil {
+		panic(fmt.Sprintf("decode unknown tray icon: %s", err))
+	}
+	if okImage.Bounds() != unknownImage.Bounds() {
+		panic(fmt.Sprintf("initialization tray icon bounds differ: OK %v, unknown %v", okImage.Bounds(), unknownImage.Bounds()))
+	}
+
+	const samplesPerAxis = 4
+	const totalSamples = samplesPerAxis * samplesPerAxis
+	bounds := okImage.Bounds()
+	centerX := float64(bounds.Min.X+bounds.Max.X) / 2
+	centerY := float64(bounds.Min.Y+bounds.Max.Y) / 2
+	knownAngle := 2 * math.Pi * float64(serverCount-unknownServerCount) / float64(serverCount)
+	result := image.NewNRGBA(bounds)
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			unknownSamples := 0
+			for sampleY := 0; sampleY < samplesPerAxis; sampleY++ {
+				for sampleX := 0; sampleX < samplesPerAxis; sampleX++ {
+					xOffset := float64(x) + (float64(sampleX)+0.5)/samplesPerAxis - centerX
+					yOffset := float64(y) + (float64(sampleY)+0.5)/samplesPerAxis - centerY
+					angle := math.Atan2(xOffset, -yOffset)
+					if angle < 0 {
+						angle += 2 * math.Pi
+					}
+					if angle >= knownAngle {
+						unknownSamples++
+					}
+				}
+			}
+
+			okColor := color.NRGBAModel.Convert(okImage.At(x, y)).(color.NRGBA)
+			unknownColor := color.NRGBAModel.Convert(unknownImage.At(x, y)).(color.NRGBA)
+			if okColor.A != unknownColor.A {
+				panic(fmt.Sprintf("initialization tray icon alpha differs at (%d, %d)", x, y))
+			}
+			knownSamples := totalSamples - unknownSamples
+			result.SetNRGBA(x, y, color.NRGBA{
+				R: uint8((int(unknownColor.R)*unknownSamples + int(okColor.R)*knownSamples) / totalSamples),
+				G: uint8((int(unknownColor.G)*unknownSamples + int(okColor.G)*knownSamples) / totalSamples),
+				B: uint8((int(unknownColor.B)*unknownSamples + int(okColor.B)*knownSamples) / totalSamples),
+				A: okColor.A,
+			})
+		}
+	}
+
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, result); err != nil {
+		panic(fmt.Sprintf("encode initialization tray icon: %s", err))
+	}
+	return encoded.Bytes()
 }
 
 // composeIcon overlays a state icon, sized to 30% of the main icon, in its
