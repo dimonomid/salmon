@@ -91,31 +91,33 @@ same interface on your desktop, then on each such remote machine follow the
 same steps as above, but only for `salmon` (no need to install `salmon-watch`
 on the servers).
 
-By default, salmon only listens on `localhost`, so we can't simply connect to
-its port remotely. See the longer discussion about authentication and security
-below, but for now, since it's a "quick start" section, let's accept a
-non-hardened setup, and configure it to listen on all interfaces: on the
-server, open the file `/etc/salmon.yml`, and edit the
-`messengers.webserver.listenAddress` key on the bottom: instead of
-`127.0.0.1:41990`, it should become just `:41990`
+Having `salmon` running on your server, we need to point our local
+`salmon-watch` to it, which by default only listens on 127.0.0.1 (so we can't
+reach it directly from a laptop).
 
-After that, restart the service:
-
-```bash
-sudo systemctl restart salmon.service
-```
-
-Having that done, we can point the desktop `salmon-watch` at our remote
-machine: open the config file `~/.config/salmon-watch/salmon-watch.yml`, and
-add one more entry to the `wsClient.servers` array, like that:
+Presumably you have ssh access to your server with public key authentication
+(i.e. you can ssh there without a password), so the easiest way forward here is
+to establish an ssh tunnel; `salmon-watch` has a convenient support for it:
+open the config file `~/.config/salmon-watch/salmon-watch.yml`, and add one
+more entry to the `wsClient.servers` array, like that (adjusting at least your
+server hostname and username):
 
 ```yaml
     - id: myserver # Arbitrary but unique ID for this server.
-      addr: something.com:41990 # Replace something.com with the actual IP or hostname.
+      addr: localhost:41991   # Just any available port on the local machine
+      tunnel:
+        ssh:
+          host: myserver.com  # TODO: your actual server hostname
+          user: myuser        # TODO: your actual ssh user
+          port: 22            # Change if using non-default ssh port
+          remoteSalmonAddr: 127.0.0.1:41990
 ```
 
 And restart `salmon-watch`. Open its web UI and verify that the list of servers
 now includes your newly added remote server as well.
+
+SSH tunnel is not the only way to access remote servers; salmon also supports
+TLS and bearer token authentication. For details, see documentation.
 
 ## Default config
 
@@ -131,18 +133,3 @@ syncthing) for which I want to trigger an error, not a warning. And I have some
 more custom exec checks as well.
 
 Don't forget to restart the systemd service to apply the changes.
-
-## Authentication and security
-
-In the quick start section above, we configured the remote server to listen on
-all interfaces without any authentication, so it means technically anyone could
-find that out and connect to it and watch incidents on your machine.
-
-The risk is not huge: the salmon API is read-only, and the info about some
-failed services is likely not particularly sensitive, but still it's obviously
-much more exposed than it should be, and so it's not a good idea to leave it
-running like that forever.
-
-TODO: explain that the authentication would only be useful if the transport is
-encrypted, which requires SSL or WireGuard, and if we go this far, it's easier to
-just use an SSH tunnel.
