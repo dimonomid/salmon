@@ -1,6 +1,6 @@
 module github.com/dimonomid/salmon
 
-go 1.27.0
+go 1.26.0
 
 require (
 	github.com/0xAX/notificator v0.0.0-20210731104411-c42e3d4a43ee
