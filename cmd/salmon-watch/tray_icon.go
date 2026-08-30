@@ -131,7 +131,7 @@ func applyIcon(state trayState) {
 		iconFlashStop = nil
 	}
 
-	if state.Alerting == overallStateOK {
+	if state.Alerting == overallStateOK || state.Alerting == overallStateUnknown {
 		systray.SetIcon(icon)
 		iconFlashMtx.Unlock()
 		return

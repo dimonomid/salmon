@@ -448,11 +448,15 @@ func TestConnectedEventClearsPreviousHeartbeat(t *testing.T) {
 	statusWebserver := newStatusWebserver(statusWebserverParams{Logger: watchTestLogger})
 	core := &salmonWatchCore{
 		statusWebserver: statusWebserver,
+		incidentState: &incidentState{
+			snoozes: &snoozeState{snoozed: make(map[string]snoozeEntry)},
+			clock:   clock.New(),
+		},
 		serverStatuses: map[string]serverStatus{
 			"server": {
-				ID:                "server",
-				LastHeartbeatTime: &previousHeartbeat,
-				initialized:       true,
+				ID:                   "server",
+				LastHeartbeatTime:    &previousHeartbeat,
+				hasConnectedOrFailed: true,
 			},
 		},
 		serverIDs: []string{"server"},

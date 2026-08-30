@@ -37,7 +37,9 @@ type serverStatus struct {
 	ConnectionChangedAt *time.Time `json:"connectionChangedAt,omitempty"`
 	// LastHeartbeatTime is when the most recent heartbeat was received.
 	LastHeartbeatTime *time.Time `json:"lastHeartbeatTime,omitempty"`
-	initialized       bool       `json:"-"`
+	// hasConnectedOrFailed becomes true after the server first connects or fails
+	// to connect, and stays true for the rest of this run.
+	hasConnectedOrFailed bool `json:"-"`
 }
 
 // trayState is the already-aggregated incident information needed by the tray
@@ -61,8 +63,7 @@ type salmonWatchCoreParams struct {
 	// Clock supplies time to all incident and snooze state; it is required.
 	Clock  clock.Clock
 	Logger *logs.Logger
-	// ReconnectDelay overrides the production 5*time.Second reconnect delay
-	// when non-zero.
+	// ReconnectDelay overrides the production reconnect backoff when non-zero.
 	ReconnectDelay time.Duration
 	// SnoozeCheckInterval overrides the production 10*time.Second snooze
 	// expiration polling interval when non-zero.
@@ -144,12 +145,12 @@ func (c *salmonWatchCore) onConnectionEvent(id string, event wsclient.Connection
 	} else if event.EventKind == wsclient.EventKindConnected || event.EventKind == wsclient.EventKindDisconnected {
 		now := event.Time
 		connected := event.EventKind == wsclient.EventKindConnected
-		if status.initialized && connected == status.Connected {
+		if status.hasConnectedOrFailed && connected == status.Connected {
 			c.serverStatusesMtx.Unlock()
 			return
 		}
 		status.Connected = connected
-		status.initialized = true
+		status.hasConnectedOrFailed = true
 		status.ConnectionChangedAt = &now
 		if connected {
 			status.LastHeartbeatTime = nil
@@ -158,6 +159,9 @@ func (c *salmonWatchCore) onConnectionEvent(id string, event wsclient.Connection
 	c.serverStatuses[id] = status
 	c.serverStatusesMtx.Unlock()
 	c.publishServerStatuses()
+	if event.EventKind == wsclient.EventKindConnected {
+		c.onIncidentUpdate(c.incidentState.snapshot())
+	}
 }
 
 func (c *salmonWatchCore) publishServerStatuses() {
@@ -190,7 +194,7 @@ func (c *salmonWatchCore) onIncidentUpdate(snapshot incidentSnapshot) {
 	c.statusWebserver.SetOngoingIncidents(snapshot)
 	if c.onIconState != nil {
 		state := trayState{
-			Alerting:      getOverallStateFromItems(snapshot.Alerting),
+			Alerting:      c.getAlertingOverallStateFromItems(snapshot.Alerting),
 			AlertingCount: len(snapshot.Alerting),
 			SnoozedCount:  len(snapshot.Snoozed),
 		}
@@ -200,6 +204,24 @@ func (c *salmonWatchCore) onIncidentUpdate(snapshot incidentSnapshot) {
 		}
 		c.onIconState(state)
 	}
+}
+
+// getAlertingOverallStateFromItems keeps an otherwise healthy state unknown
+// until each configured server has either connected or failed at least once.
+func (c *salmonWatchCore) getAlertingOverallStateFromItems(items []salmon.ItemWContext) overallState {
+	state := getOverallStateFromItems(items)
+	if state != overallStateOK {
+		return state
+	}
+
+	c.serverStatusesMtx.RLock()
+	defer c.serverStatusesMtx.RUnlock()
+	for _, status := range c.serverStatuses {
+		if !status.hasConnectedOrFailed {
+			return overallStateUnknown
+		}
+	}
+	return overallStateOK
 }
 
 func (c *salmonWatchCore) onNotification(notif *salmon.Notification) {
@@ -223,6 +245,6 @@ func (c *salmonWatchCore) onNotification(notif *salmon.Notification) {
 		}
 	}
 
-	state := getOverallStateFromItems(snapshot.Alerting)
+	state := c.getAlertingOverallStateFromItems(snapshot.Alerting)
 	c.logger.Log(logs.Info, "Overall state is %s (%d alerting, %d snoozed)", state, len(snapshot.Alerting), len(snapshot.Snoozed))
 }
