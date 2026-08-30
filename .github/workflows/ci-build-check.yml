@@ -1,0 +1,15 @@
+name: ci-build-check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-binaries:
+    uses: ./.github/workflows/_build-binaries.yml
+    with:
+      source_ref: ${{ github.sha }}
+      artifact_prefix: build-check
+      retention_days: 7
