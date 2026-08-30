@@ -12,6 +12,20 @@ import (
 
 var testLoggerInternal = logs.NewLogger(logs.LoggerParams{Clock: clock.New()})
 
+func TestNextReconnectDelayUsesLinearBackoff(t *testing.T) {
+	delay := time.Duration(0)
+	for attempt := 1; attempt <= 12; attempt++ {
+		delay = nextReconnectDelay(delay)
+		want := time.Duration(attempt) * time.Second
+		if want > 10*time.Second {
+			want = 10 * time.Second
+		}
+		if delay != want {
+			t.Fatalf("delay after attempt %d = %s, want %s", attempt, delay, want)
+		}
+	}
+}
+
 func TestSendOngoingIncidentsWaitsForCapacity(t *testing.T) {
 	first := &salmon.Notification{}
 	second := &salmon.Notification{}

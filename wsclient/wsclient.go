@@ -50,6 +50,13 @@ const (
 	// same WebSocket error can be caused by Salmon becoming unavailable while
 	// the tunnel process remains healthy.
 	tunnelFailureSettleDelay = 50 * time.Millisecond
+
+	// reconnectDelayStep is added after each consecutive failed connection
+	// attempt.
+	reconnectDelayStep = time.Second
+
+	// maxReconnectDelay caps the linear connection retry backoff.
+	maxReconnectDelay = 10 * time.Second
 )
 
 type WSClient struct {
@@ -87,7 +94,7 @@ type Params struct {
 
 	// EventCh receives every event for this server in observation order.
 	EventCh chan<- ServerEvent
-	// ReconnectDelay overrides the production reconnect delay when non-zero.
+	// ReconnectDelay overrides each production reconnect delay when non-zero.
 	ReconnectDelay time.Duration
 	// Tunnel is optional; if provided, it delays connection attempts until the
 	// server's tunnel is ready.
@@ -241,22 +248,26 @@ func (c *WSClient) Close() {
 func (c *WSClient) eventLoop(ctx context.Context) {
 	defer close(c.done)
 	connError := ""
+	reconnectDelay := time.Duration(0)
 
 mainLoop:
-	for i := 0; true; i++ {
+	for {
 		tunnelWasReady := true
 		if c.params.Tunnel != nil {
 			tunnelWasReady = c.params.Tunnel.IsReady()
 			if !c.params.Tunnel.WaitReady(c.interrupt) {
 				return
 			}
+			if !tunnelWasReady {
+				reconnectDelay = 0
+			}
 		}
 		if !c.sendConnectionError(connError) {
 			return
 		}
 
-		if i > 0 && tunnelWasReady {
-			delay := 5 * time.Second
+		if reconnectDelay > 0 && tunnelWasReady {
+			delay := reconnectDelay
 			if c.params.ReconnectDelay > 0 {
 				delay = c.params.ReconnectDelay
 			}
@@ -288,9 +299,11 @@ mainLoop:
 			}
 			if c.tunnelUnavailable() {
 				connError = ""
+				reconnectDelay = 0
 				c.params.Logger.Log(logs.Debug, "Connection is waiting for its tunnel")
 				continue mainLoop
 			}
+			reconnectDelay = nextReconnectDelay(reconnectDelay)
 			if !c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindDisconnected, Time: time.Now()}) {
 				return
 			}
@@ -298,6 +311,7 @@ mainLoop:
 			continue mainLoop
 		}
 		conn.SetReadLimit(maxServerMessageBytes)
+		reconnectDelay = 0
 
 		c.params.Logger.Log(logs.Info, "Connected to %s", ustr)
 		if !c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindConnected, Time: time.Now()}) {
@@ -419,6 +433,7 @@ mainLoop:
 			case <-disconnected:
 				readTimer.Stop()
 				_ = conn.Close()
+				reconnectDelay = nextReconnectDelay(reconnectDelay)
 				continue mainLoop
 
 			case <-c.interrupt:
@@ -430,6 +445,15 @@ mainLoop:
 			}
 		}
 	}
+}
+
+// nextReconnectDelay advances the linear retry backoff by one step without
+// exceeding its maximum.
+func nextReconnectDelay(current time.Duration) time.Duration {
+	if current >= maxReconnectDelay-reconnectDelayStep {
+		return maxReconnectDelay
+	}
+	return current + reconnectDelayStep
 }
 
 // websocketConnectionError describes HTTP handshake failures more usefully
