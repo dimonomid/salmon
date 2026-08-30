@@ -6,8 +6,10 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,6 +58,8 @@ type WSClient struct {
 	dialer *websocket.Dialer
 	// scheme is ws for plain connections and wss when TLS is enabled.
 	scheme string
+	// requestHeader carries optional authentication for the WebSocket upgrade.
+	requestHeader http.Header
 	// interrupt is closed to stop dialing, reconnect delays, and the active
 	// connection.
 	interrupt chan struct{}
@@ -147,19 +151,47 @@ func New(params Params) (*WSClient, error) {
 	if err != nil {
 		return nil, err
 	}
+	requestHeader, err := websocketRequestHeader(params.Config)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &WSClient{
-		params:    params,
-		dialer:    dialerConfig.dialer,
-		scheme:    dialerConfig.scheme,
-		interrupt: make(chan struct{}),
-		cancel:    cancel,
-		done:      make(chan struct{}),
+		params:        params,
+		dialer:        dialerConfig.dialer,
+		scheme:        dialerConfig.scheme,
+		requestHeader: requestHeader,
+		interrupt:     make(chan struct{}),
+		cancel:        cancel,
+		done:          make(chan struct{}),
 	}
 
 	go c.eventLoop(ctx)
 
 	return c, nil
+}
+
+// websocketRequestHeader loads the optional bearer token before the client's
+// connection worker starts.
+func websocketRequestHeader(config ConfigServer) (http.Header, error) {
+	if config.Auth == nil {
+		return nil, nil
+	}
+	if config.Auth.BearerTokenFile == "" {
+		return nil, fmt.Errorf("auth.bearerTokenFile is required")
+	}
+	contents, err := os.ReadFile(config.Auth.BearerTokenFile)
+	if err != nil {
+		return nil, fmt.Errorf("read bearer token file %q: %w", config.Auth.BearerTokenFile, err)
+	}
+	token := strings.TrimSpace(string(contents))
+	if token == "" {
+		return nil, fmt.Errorf("bearer token file %q is empty", config.Auth.BearerTokenFile)
+	}
+	if strings.ContainsAny(token, " \t\r\n") {
+		return nil, fmt.Errorf("bearer token file %q contains whitespace inside the token", config.Auth.BearerTokenFile)
+	}
+	return http.Header{"Authorization": []string{"Bearer " + token}}, nil
 }
 
 // websocketDialer creates an independent dialer and loads any additional CA
@@ -248,18 +280,21 @@ mainLoop:
 		ustr := u.String()
 
 		c.params.Logger.Log(logs.Info, "Connecting to %s", ustr)
-		conn, _, err := c.dialer.DialContext(ctx, ustr, nil)
+		conn, response, err := c.dialer.DialContext(ctx, ustr, c.requestHeader)
 		if err != nil {
+			connError = websocketConnectionError(err, response, c.requestHeader.Get("Authorization") != "")
+			if response != nil && response.Body != nil {
+				_ = response.Body.Close()
+			}
 			if c.tunnelUnavailable() {
 				connError = ""
 				c.params.Logger.Log(logs.Debug, "Connection is waiting for its tunnel")
 				continue mainLoop
 			}
-			connError = err.Error()
 			if !c.sendConnectionEvent(ConnectionEvent{EventKind: EventKindDisconnected, Time: time.Now()}) {
 				return
 			}
-			c.params.Logger.Log(logs.Warning, "Failed to connect to %s: %s", ustr, err)
+			c.params.Logger.Log(logs.Warning, "Failed to connect to %s: %s", ustr, connError)
 			continue mainLoop
 		}
 		conn.SetReadLimit(maxServerMessageBytes)
@@ -395,6 +430,21 @@ mainLoop:
 			}
 		}
 	}
+}
+
+// websocketConnectionError describes HTTP handshake failures more usefully
+// than the WebSocket library's generic "bad handshake" error.
+func websocketConnectionError(err error, response *http.Response, bearerTokenProvided bool) string {
+	if response == nil {
+		return err.Error()
+	}
+	if response.StatusCode == http.StatusUnauthorized {
+		if bearerTokenProvided {
+			return "server rejected the configured bearer token"
+		}
+		return "server requires authentication, but no bearer token is configured"
+	}
+	return fmt.Sprintf("WebSocket handshake failed: %s", response.Status)
 }
 
 func (c *WSClient) tunnelUnavailable() bool {

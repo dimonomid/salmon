@@ -20,6 +20,9 @@ import (
 
 type Webserver struct {
 	params Params
+	// authCredentials contains the compiled authentication methods accepted by
+	// the API.
+	authCredentials []authCredential
 
 	server   *http.Server
 	listener net.Listener
@@ -64,6 +67,10 @@ func New(params Params) (*Webserver, error) {
 	if params.Config.ListenAddress == "" {
 		return nil, errors.Errorf("listen address can't be empty")
 	}
+	authCredentials, err := parseAuthCredentials(params.Config.Auth)
+	if err != nil {
+		return nil, err
+	}
 	var certificate *tls.Certificate
 	if params.Config.TLS != nil {
 		if params.Config.TLS.CertFile == "" {
@@ -80,7 +87,8 @@ func New(params Params) (*Webserver, error) {
 	}
 
 	s := &Webserver{
-		params: params,
+		params:          params,
+		authCredentials: authCredentials,
 
 		subs:    make(map[int]chan *salmon.Notification),
 		wsConns: make(map[int]*wsConn),
@@ -151,7 +159,7 @@ func (s *Webserver) run() {
 			default:
 			}
 			if !sendNotificationToSubscriber(sub.ch, notif) {
-				s.params.Common.Logger.Log(logs.Warning, "Disconnecting WebSocket subscriber %d because its notification queue is full", sub.id)
+				sub.conn.logger.Log(logs.Warning, "Disconnecting WebSocket subscriber %d because its notification queue is full", sub.id)
 				// Close the connection immediately instead of draining its stale
 				// backlog. If the client reconnects, it receives a fresh snapshot.
 				s.unsubscribe(sub.id)
@@ -182,6 +190,9 @@ func (s *Webserver) createHandler() (http.Handler, error) {
 	rRoot.Handle(pat.New("/api/v1/*"), rAPI)
 	{
 		rAPI.Use(makeDesiredContentTypeMiddleware("application/json"))
+		if len(s.authCredentials) > 0 {
+			rAPI.Use(s.authMiddleware)
+		}
 		rAPI.HandleFunc(pat.Get("/status"), makeAPIHandlerWWriter(s.params.Common.Logger, s.status))
 		rAPI.HandleFunc(pat.Get("/wsconnect"), makeAPIHandlerWWriter(s.params.Common.Logger, s.wsConnect))
 	}
@@ -208,11 +219,14 @@ func (s *Webserver) subscribe(conn *wsConn) (subID int, ch chan *salmon.Notifica
 
 	subID = s.nextSubID
 	s.nextSubID++
+	if conn.logger == nil {
+		conn.logger = s.params.Common.Logger
+	}
 
 	ch = make(chan *salmon.Notification, websocketSubscriptionQueueSize)
 	s.subs[subID] = ch
 	s.wsConns[subID] = conn
-	s.params.Common.Logger.Log(logs.Info, "WebSocket client %d connected from %s", subID, websocketRemoteAddress(conn))
+	conn.logger.Log(logs.Info, "WebSocket client %d connected from %s", subID, websocketRemoteAddress(conn))
 	s.subsMtx.Unlock()
 
 	return subID, ch, true
@@ -247,7 +261,7 @@ func (s *Webserver) unsubscribe(subID int) {
 		if conn.conn != nil {
 			_ = conn.conn.Close()
 		}
-		s.params.Common.Logger.Log(logs.Info, "WebSocket client %d disconnected from %s", subID, remoteAddress)
+		conn.logger.Log(logs.Info, "WebSocket client %d disconnected from %s", subID, remoteAddress)
 	}
 }
 

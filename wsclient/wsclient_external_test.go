@@ -112,6 +112,41 @@ func TestClientRejectsUnusableCAFile(t *testing.T) {
 	}
 }
 
+func TestClientRejectsUnusableBearerTokenFile(t *testing.T) {
+	directory := t.TempDir()
+	emptyFile := directory + "/empty.token"
+	if err := os.WriteFile(emptyFile, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	whitespaceFile := directory + "/whitespace.token"
+	if err := os.WriteFile(whitespaceFile, []byte("part one"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name      string
+		tokenFile string
+		wantErr   string
+	}{
+		{name: "missing", tokenFile: directory + "/missing.token", wantErr: "read bearer token file"},
+		{name: "empty", tokenFile: emptyFile, wantErr: "is empty"},
+		{name: "internal whitespace", tokenFile: whitespaceFile, wantErr: "contains whitespace"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := wsclient.New(wsclient.Params{
+				Config: wsclient.ConfigServer{
+					ID: "test", Addr: "127.0.0.1:41990",
+					Auth: &wsclient.ConfigAuth{BearerTokenFile: test.tokenFile},
+				},
+				Logger:  testLogger,
+				EventCh: make(chan wsclient.ServerEvent, 1),
+			})
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("New() error = %v, want it to contain %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
 func TestClientDisconnectsFromMalformedServerMessages(t *testing.T) {
 	tests := []struct {
 		name            string

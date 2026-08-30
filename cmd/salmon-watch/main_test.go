@@ -39,6 +39,8 @@ func TestWatchRunnableCommandsRejectPositionalArguments(t *testing.T) {
 		{"config", "init", "unexpected"},
 		{"autostart", "install", "unexpected"},
 		{"setup", "unexpected"},
+		{"generate-bearer-token"},
+		{"generate-bearer-token", "one", "two"},
 	} {
 		command := newWatchRootCommand()
 		command.SetArgs(args)

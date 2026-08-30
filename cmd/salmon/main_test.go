@@ -260,6 +260,9 @@ func TestLoadConfigUsesWebserverTLSOptions(t *testing.T) {
         tls:
           certFile: /etc/salmon/tls/fullchain.pem
           keyFile: /etc/salmon/tls/privkey.pem
+        auth:
+          - id: my-laptop
+            bearerTokenHash: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 `)
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
@@ -271,5 +274,28 @@ func TestLoadConfigUsesWebserverTLSOptions(t *testing.T) {
 	tlsConfig := cfg.Core.Messengers[0].Webserver.TLS
 	if tlsConfig == nil || tlsConfig.CertFile != "/etc/salmon/tls/fullchain.pem" || tlsConfig.KeyFile != "/etc/salmon/tls/privkey.pem" {
 		t.Fatalf("TLS config = %#v", tlsConfig)
+	}
+	auth := cfg.Core.Messengers[0].Webserver.Auth
+	if len(auth) != 1 || auth[0].ID != "my-laptop" || auth[0].BearerTokenHash == "" {
+		t.Fatalf("auth config = %#v", auth)
+	}
+}
+
+func TestLoadConfigRejectsOldNestedBearerTokenAuth(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "salmon.yml")
+	data := []byte(`core:
+  messengers:
+    - webserver:
+        listenAddress: 127.0.0.1:41990
+        auth:
+          bearerTokens:
+            - id: my-laptop
+              tokenHash: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+`)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadConfig(path); err == nil {
+		t.Fatal("old nested bearer-token authentication was accepted")
 	}
 }

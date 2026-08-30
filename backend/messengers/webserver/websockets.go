@@ -29,6 +29,9 @@ var upgrader = websocket.Upgrader{}
 
 type wsConn struct {
 	conn *websocket.Conn
+	// logger carries connection-specific context such as the authenticated
+	// client ID.
+	logger *logs.Logger
 
 	// ctx is a context which is canceled when the client disconnects.
 	ctx       context.Context
@@ -48,10 +51,14 @@ func (s *Webserver) wsConnect(w http.ResponseWriter, r *http.Request) (resp inte
 	ctx, ctxCancel := context.WithCancel(context.Background())
 
 	conn := &wsConn{
-		conn: c,
+		conn:   c,
+		logger: s.params.Common.Logger,
 
 		ctx:       ctx,
 		ctxCancel: ctxCancel,
+	}
+	if clientID := bearerClientID(r.Context()); clientID != "" {
+		conn.logger = conn.logger.WithContext("client_id", clientID)
 	}
 
 	subID, ch, ok := s.subscribe(conn)
@@ -73,9 +80,9 @@ func (s *Webserver) wsRxLoop(conn *wsConn) (err error) {
 		if err != nil {
 			select {
 			case <-conn.ctx.Done():
-				s.params.Common.Logger.Log(logs.Debug, "WebSocket subscriber %d receive loop stopped", conn.subID)
+				conn.logger.Log(logs.Debug, "WebSocket subscriber %d receive loop stopped", conn.subID)
 			default:
-				s.params.Common.Logger.Log(logs.Warning, "WebSocket subscriber %d disconnected: %s", conn.subID, err)
+				conn.logger.Log(logs.Warning, "WebSocket subscriber %d disconnected: %s", conn.subID, err)
 			}
 		}
 
@@ -100,7 +107,7 @@ func (s *Webserver) wsRxLoop(conn *wsConn) (err error) {
 
 func (s *Webserver) wsTxLoop(conn *wsConn, notifications <-chan *salmon.Notification) {
 	defer func() {
-		s.params.Common.Logger.Log(logs.Debug, "WebSocket subscriber %d send loop stopped", conn.subID)
+		conn.logger.Log(logs.Debug, "WebSocket subscriber %d send loop stopped", conn.subID)
 		s.unsubscribe(conn.subID)
 	}()
 
@@ -114,7 +121,7 @@ func (s *Webserver) wsTxLoop(conn *wsConn, notifications <-chan *salmon.Notifica
 			},
 		},
 	}); err != nil {
-		s.params.Common.Logger.Log(logs.Warning, "Failed to send initial snapshot to WebSocket subscriber %d: %s", conn.subID, err)
+		conn.logger.Log(logs.Warning, "Failed to send initial snapshot to WebSocket subscriber %d: %s", conn.subID, err)
 		return
 	}
 
@@ -132,13 +139,13 @@ func (s *Webserver) wsTxLoop(conn *wsConn, notifications <-chan *salmon.Notifica
 				Event: wsEventOngoingIncidentsUpdate,
 				Data:  notif,
 			}); err != nil {
-				s.params.Common.Logger.Log(logs.Warning, "Failed to send incident update to WebSocket subscriber %d: %s", conn.subID, err)
+				conn.logger.Log(logs.Warning, "Failed to send incident update to WebSocket subscriber %d: %s", conn.subID, err)
 				return
 			}
 
 		case <-heartbeats.C:
 			if err := conn.conn.WriteMessage(websocket.BinaryMessage, []byte{0}); err != nil {
-				s.params.Common.Logger.Log(logs.Warning, "Failed to send heartbeat to WebSocket subscriber %d: %s", conn.subID, err)
+				conn.logger.Log(logs.Warning, "Failed to send heartbeat to WebSocket subscriber %d: %s", conn.subID, err)
 				return
 			}
 		}

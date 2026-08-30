@@ -1,9 +1,13 @@
 package webserver_test
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -163,6 +167,136 @@ func TestServerRejectsInvalidTLSConfiguration(t *testing.T) {
 				t.Fatalf("New() error = %v, want it to contain %q", err, test.wantErr)
 			}
 		})
+	}
+}
+
+func TestServerRejectsInvalidBearerAuthConfiguration(t *testing.T) {
+	validHash := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte("valid-token")))
+	tests := []struct {
+		name    string
+		auth    []server.ConfigAuth
+		wantErr string
+	}{
+		{
+			name: "missing ID", auth: []server.ConfigAuth{{BearerTokenHash: validHash}},
+			wantErr: ".id is required",
+		},
+		{
+			name: "duplicate ID", auth: []server.ConfigAuth{
+				{ID: "laptop", BearerTokenHash: validHash}, {ID: "laptop", BearerTokenHash: validHash},
+			},
+			wantErr: ".id \"laptop\" is duplicated",
+		},
+		{
+			name: "missing authentication method", auth: []server.ConfigAuth{{ID: "laptop"}},
+			wantErr: "contains 0 authentication methods; exactly one is required",
+		},
+		{
+			name: "missing hash prefix", auth: []server.ConfigAuth{{ID: "laptop", BearerTokenHash: "abcd"}},
+			wantErr: "must start with \"sha256:\"",
+		},
+		{
+			name: "invalid hash", auth: []server.ConfigAuth{{ID: "laptop", BearerTokenHash: "sha256:abcd"}},
+			wantErr: "32-byte hexadecimal",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := server.New(server.Params{
+				Common: messengers.Params{Logger: testLogger},
+				Config: server.Config{ListenAddress: "127.0.0.1:0", Auth: test.auth},
+			})
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("New() error = %v, want it to contain %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestServerRequiresBearerTokenForEntireAPI(t *testing.T) {
+	token := "test-bearer-token"
+	tokenHash := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(token)))
+	logPath := filepath.Join(t.TempDir(), "webserver.log")
+	logger := logs.NewLogger(logs.LoggerParams{
+		Clock: clock.New(),
+		Sinks: []logs.LoggerSinkParams{{Filepath: logPath, MinLevel: logs.Info}},
+	})
+	board := itemsboard.New()
+	board.Set([]*salmon.ItemWContext{incident("disk.free", salmon.ItemStateError, "full")})
+	notifications := make(chan *salmon.Notification)
+	done := make(chan struct{})
+	webserver, err := server.New(server.Params{
+		Common: messengers.Params{Logger: logger, ItemsBoard: board, NotificationsChan: notifications, TornDown: done},
+		Config: server.Config{
+			ListenAddress: "127.0.0.1:0",
+			Auth:          []server.ConfigAuth{{ID: "laptop", BearerTokenHash: tokenHash}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		close(notifications)
+		<-done
+	})
+
+	statusURL := "http://" + webserver.Addr().String() + "/api/v1/status"
+	for _, test := range []struct {
+		name       string
+		authorizer string
+		wantStatus int
+	}{
+		{name: "missing", wantStatus: http.StatusUnauthorized},
+		{name: "wrong", authorizer: "Bearer wrong", wantStatus: http.StatusUnauthorized},
+		{name: "valid", authorizer: "Bearer " + token, wantStatus: http.StatusOK},
+	} {
+		t.Run("status "+test.name, func(t *testing.T) {
+			request, err := http.NewRequest(http.MethodGet, statusURL, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.authorizer != "" {
+				request.Header.Set("Authorization", test.authorizer)
+			}
+			response, err := http.DefaultClient.Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = response.Body.Close()
+			if response.StatusCode != test.wantStatus {
+				t.Fatalf("status = %s, want %d", response.Status, test.wantStatus)
+			}
+			if test.wantStatus == http.StatusUnauthorized && response.Header.Get("WWW-Authenticate") != "Bearer" {
+				t.Fatalf("WWW-Authenticate = %q, want Bearer", response.Header.Get("WWW-Authenticate"))
+			}
+		})
+	}
+
+	websocketURL := "ws://" + webserver.Addr().String() + "/api/v1/wsconnect"
+	if connection, response, err := websocket.DefaultDialer.Dial(websocketURL, nil); err == nil {
+		_ = connection.Close()
+		t.Fatal("unauthenticated WebSocket connection succeeded")
+	} else if response == nil || response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated WebSocket response = %#v, error = %v", response, err)
+	}
+	header := http.Header{"Authorization": []string{"Bearer " + token}}
+	connection, _, err := websocket.DefaultDialer.Dial(websocketURL, header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	message := readEnvelope(t, connection)
+	if message.Event != "OngoingIncidentsSnapshot" {
+		t.Fatalf("initial event = %q", message.Event)
+	}
+	assertNotificationTotal(t, message.Data, "disk.free")
+	logContents, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logContents), "WebSocket client 0 connected") || !strings.Contains(string(logContents), "(client_id:laptop)") {
+		t.Fatalf("authenticated connection log = %q, want client_id tag", logContents)
 	}
 }
 

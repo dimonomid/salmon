@@ -145,3 +145,44 @@ func TestConfigValidateTunnels(t *testing.T) {
 		})
 	}
 }
+
+func TestConfigValidateBearerAuth(t *testing.T) {
+	tests := []struct {
+		name    string
+		server  wsclient.ConfigServer
+		wantErr string
+	}{
+		{
+			name:   "TLS",
+			server: wsclient.ConfigServer{ID: "remote", Addr: "salmon.example.com:41990", TLS: &wsclient.ConfigTLS{}, Auth: &wsclient.ConfigAuth{BearerTokenFile: "/tmp/token"}},
+		},
+		{
+			name:   "loopback plaintext",
+			server: wsclient.ConfigServer{ID: "local", Addr: "127.0.0.1:41990", Auth: &wsclient.ConfigAuth{BearerTokenFile: "/tmp/token"}},
+		},
+		{
+			name:   "remote plaintext",
+			server: wsclient.ConfigServer{ID: "remote", Addr: "salmon.example.com:41990", Auth: &wsclient.ConfigAuth{BearerTokenFile: "/tmp/token"}},
+		},
+		{
+			name:    "missing token file",
+			server:  wsclient.ConfigServer{ID: "remote", Addr: "salmon.example.com:41990", TLS: &wsclient.ConfigTLS{}, Auth: &wsclient.ConfigAuth{}},
+			wantErr: "auth.bearerTokenFile is required",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := (wsclient.Config{Servers: []wsclient.ConfigServer{test.server}}).Validate()
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("Validate() error = %v, want it to contain %q", err, test.wantErr)
+			}
+		})
+	}
+}

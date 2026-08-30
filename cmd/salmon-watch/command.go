@@ -11,6 +11,7 @@ import (
 func newWatchRootCommand() *cobra.Command {
 	var configFilename string
 	var logLevel string
+	var bearerTokenOutputFilename string
 	root := &cobra.Command{
 		Use:          "salmon-watch",
 		Short:        "Show Salmon status in the desktop tray",
@@ -74,6 +75,21 @@ func newWatchRootCommand() *cobra.Command {
 		},
 	}
 
-	root.AddCommand(configCommand, autostartCommand, setupCommand)
+	generateBearerTokenCommand := &cobra.Command{
+		Use:   "generate-bearer-token SERVER_ID",
+		Short: "Generate a bearer token for one Salmon server",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return generateBearerToken(cmd.OutOrStdout(), configFilename, args[0], bearerTokenOutputFilename)
+		},
+	}
+	generateBearerTokenCommand.Flags().StringVar(
+		&bearerTokenOutputFilename,
+		"output",
+		"",
+		"Token filename (defaults to tokens/SERVER_ID.token next to the salmon-watch configuration)",
+	)
+
+	root.AddCommand(configCommand, autostartCommand, setupCommand, generateBearerTokenCommand)
 	return root
 }

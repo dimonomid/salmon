@@ -25,8 +25,18 @@ type ConfigServer struct {
 	// TLS enables a secure WebSocket connection when present.
 	TLS *ConfigTLS `yaml:"tls,omitempty"`
 
+	// Auth optionally authenticates this client to the Salmon server.
+	Auth *ConfigAuth `yaml:"auth,omitempty"`
+
 	// Tunnel optionally runs a persistent local tunnel command for this server.
 	Tunnel *ConfigTunnel `yaml:"tunnel,omitempty"`
+}
+
+// ConfigAuth identifies the bearer token used to authenticate to one Salmon
+// server.
+type ConfigAuth struct {
+	// BearerTokenFile is the path to a file containing the bearer token.
+	BearerTokenFile string `yaml:"bearerTokenFile"`
 }
 
 // ConfigTLS controls certificate verification for a secure WebSocket
@@ -84,22 +94,34 @@ type ConfigSSHTunnel struct {
 func (c Config) Validate() error {
 	serverIndexByID := make(map[string]int, len(c.Servers))
 	for i, server := range c.Servers {
-		if server.ID == "" {
-			return fmt.Errorf("wsClient.servers[%d].id is required", i)
-		}
-		if !validServerID.MatchString(server.ID) {
-			return fmt.Errorf("wsClient.servers[%d].id %q must contain only letters, digits, underscores, or hyphens", i, server.ID)
-		}
-		if server.ID == IDInternal {
-			return fmt.Errorf("wsClient.servers[%d].id %q is reserved", i, server.ID)
+		if err := ValidateServerID(server.ID); err != nil {
+			return fmt.Errorf("wsClient.servers[%d].id %w", i, err)
 		}
 		if previousIndex, exists := serverIndexByID[server.ID]; exists {
 			return fmt.Errorf("wsClient.servers[%d].id %q duplicates wsClient.servers[%d].id", i, server.ID, previousIndex)
 		}
 		serverIndexByID[server.ID] = i
+		if server.Auth != nil && server.Auth.BearerTokenFile == "" {
+			return fmt.Errorf("wsClient.servers[%d].auth.bearerTokenFile is required", i)
+		}
 		if err := validateTunnel(server, i); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// ValidateServerID checks whether an ID can identify a configured Salmon
+// server and safely prefix its incident keys and generated credential files.
+func ValidateServerID(id string) error {
+	if id == "" {
+		return fmt.Errorf("is required")
+	}
+	if !validServerID.MatchString(id) {
+		return fmt.Errorf("%q must contain only letters, digits, underscores, or hyphens", id)
+	}
+	if id == IDInternal {
+		return fmt.Errorf("%q is reserved", id)
 	}
 	return nil
 }

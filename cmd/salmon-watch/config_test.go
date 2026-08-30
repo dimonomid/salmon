@@ -96,6 +96,8 @@ func TestLoadWatchConfigUsesTLSOptions(t *testing.T) {
       tls:
         caFile: /etc/salmon-watch/private-ca.pem
         serverName: salmon.example.com
+      auth:
+        bearerTokenFile: /home/user/.config/salmon-watch/tokens/remote.token
     - id: public-ca
       addr: salmon.example.net:41990
       tls: {}
@@ -110,6 +112,9 @@ func TestLoadWatchConfigUsesTLSOptions(t *testing.T) {
 	tlsConfig := cfg.WSClient.Servers[0].TLS
 	if tlsConfig == nil || tlsConfig.CAFile != "/etc/salmon-watch/private-ca.pem" || tlsConfig.ServerName != "salmon.example.com" {
 		t.Fatalf("TLS config = %#v", tlsConfig)
+	}
+	if auth := cfg.WSClient.Servers[0].Auth; auth == nil || auth.BearerTokenFile != "/home/user/.config/salmon-watch/tokens/remote.token" {
+		t.Fatalf("auth config = %#v", auth)
 	}
 	if cfg.WSClient.Servers[1].TLS == nil {
 		t.Fatal("empty tls object did not enable TLS")
