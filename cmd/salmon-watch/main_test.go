@@ -35,6 +35,18 @@ func TestWatchSetupCreateConfigCreatesConfig(t *testing.T) {
 	}
 }
 
+func TestWatchSetupPlatformValidation(t *testing.T) {
+	if err := validateWatchSetupPlatform("linux"); err != nil {
+		t.Fatalf("Linux setup rejected: %v", err)
+	}
+	for _, goos := range []string{"darwin", "windows"} {
+		err := validateWatchSetupPlatform(goos)
+		if err == nil || !strings.Contains(err.Error(), "not implemented on this platform ("+goos+")") {
+			t.Errorf("validateWatchSetupPlatform(%q) error = %v", goos, err)
+		}
+	}
+}
+
 func TestWatchRunnableCommandsRejectPositionalArguments(t *testing.T) {
 	for _, args := range [][]string{
 		{"unexpected"},

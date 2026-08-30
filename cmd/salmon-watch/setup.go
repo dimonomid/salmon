@@ -9,6 +9,15 @@ import (
 	"github.com/dimonomid/salmon/internal/setup"
 )
 
+// validateWatchSetupPlatform prevents Linux desktop-autostart setup from
+// creating unusable files on platforms that do not support it yet.
+func validateWatchSetupPlatform(goos string) error {
+	if goos != "linux" {
+		return fmt.Errorf("salmon-watch setup is not implemented on this platform (%s)", goos)
+	}
+	return nil
+}
+
 // initializeWatchConfig creates the configuration when absent and reports the
 // result to output.
 func initializeWatchConfig(output io.Writer, configFilename string) error {

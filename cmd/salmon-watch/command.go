@@ -1,6 +1,8 @@
 package main
 
 import (
+	"runtime"
+
 	"github.com/benbjohnson/clock"
 	"github.com/spf13/cobra"
 
@@ -43,10 +45,11 @@ func newWatchRootCommand() *cobra.Command {
 	root.Flags().StringVar(&logLevel, "log-level", "info", "Minimum log level (debug, info, warning, or error)")
 
 	setupCommand := &cobra.Command{
-		Use:   "setup",
-		Short: "Perform the complete setup",
-		Long:  "Perform the complete setup by creating the default configuration and installing the desktop autostart entry. Run a setup subcommand to perform only one of these operations.",
-		Args:  cobra.NoArgs,
+		Use:               "setup",
+		Short:             "Perform the complete setup",
+		Long:              "Perform the complete setup by creating the default configuration and installing the desktop autostart entry. Run a setup subcommand to perform only one of these operations.",
+		Args:              cobra.NoArgs,
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error { return validateWatchSetupPlatform(runtime.GOOS) },
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := initializeWatchConfig(cmd.OutOrStdout(), configFilename); err != nil {
 				return err
