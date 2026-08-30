@@ -65,12 +65,9 @@ machine health is as follows:
 # Download both prebuilt binaries from GitHub:
 # TODO: fill it when prebuilt binaries are set up on github
 
-# Move them wherever you normally keep locally managed executables (salmon
-# needs to be a system binary, while salmon-watch can stay in home directory)
-#
-# For example (adjust as needed):
+# Install both binaries system-wide:
 sudo install -m 755 salmon /usr/local/bin/salmon
-install -m 755 salmon-watch ~/.local/bin/salmon-watch
+sudo install -m 755 salmon-watch /usr/local/bin/salmon-watch
 
 # Let it create default configs, systemd service and desktop autostart entry.
 sudo salmon setup
@@ -97,7 +94,7 @@ reach it directly from a laptop).
 
 Presumably you have ssh access to your server with public key authentication
 (i.e. you can ssh there without a password), so the easiest way forward here is
-to establish an ssh tunnel; `salmon-watch` has a convenient support for it:
+to establish an ssh tunnel, and `salmon-watch` has a convenient support for it:
 open the config file `~/.config/salmon-watch/salmon-watch.yml`, and add one
 more entry to the `wsClient.servers` array, like that (adjusting at least your
 server hostname and username):
