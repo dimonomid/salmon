@@ -95,6 +95,12 @@ function formatIncidentState(state, {stale = false, snoozed = false} = {}) {
   return markers.length === 0 ? state : `${state} (${markers.join(", ")})`;
 }
 
+// retainedSnoozeMenuKey keeps the open menu key while its alerting incident
+// still exists, and clears it once that menu can no longer be rendered.
+function retainedSnoozeMenuKey(openKey, items) {
+  return items.some((item) => item.key === openKey) ? openKey : null;
+}
+
 // iconURL selects the incident icon, giving internal errors their distinct icon.
 function iconURL(item) {
   if (item.state === "ok") {
@@ -121,6 +127,7 @@ if (typeof module !== "undefined") {
     summarizeServers,
     isIncidentStale,
     formatIncidentState,
+    retainedSnoozeMenuKey,
     iconURL,
   };
 }

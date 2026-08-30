@@ -140,6 +140,10 @@ let snoozedVisible = visibilityPreference(snoozedVisibilityKey);
 let lastServerItems = [];
 let lastAlertingItems = [];
 let lastSnoozedItems = [];
+// openSnoozeMenuKey is the incident key whose snooze menu is expanded, such as
+// "my-server.disk-space", or null when no snooze menu is open. Keeping it here
+// preserves the expanded menu across incident-list rerenders.
+let openSnoozeMenuKey = null;
 
 function renderIncidentList(items, container, isSnoozed) {
   for (const item of items) {
@@ -205,16 +209,17 @@ function renderIncidentList(items, container, isSnoozed) {
       menuButton.type = "button";
       menuButton.textContent = "Snooze";
       menuButton.setAttribute("aria-haspopup", "menu");
-      menuButton.setAttribute("aria-expanded", "false");
+      menuButton.setAttribute("aria-expanded", String(openSnoozeMenuKey === item.key));
       menu.appendChild(menuButton);
 
       const options = document.createElement("div");
       options.className = "snooze-menu-options";
-      options.hidden = true;
+      options.hidden = openSnoozeMenuKey !== item.key;
       options.setAttribute("role", "menu");
       menuButton.addEventListener("click", () => {
         options.hidden = !options.hidden;
         menuButton.setAttribute("aria-expanded", String(!options.hidden));
+        openSnoozeMenuKey = options.hidden ? null : item.key;
       });
       for (const duration of snoozeDurationOptions) {
         const button = document.createElement("button");
@@ -222,6 +227,7 @@ function renderIncidentList(items, container, isSnoozed) {
         button.textContent = duration;
         button.setAttribute("role", "menuitem");
         button.addEventListener("click", () => {
+          openSnoozeMenuKey = null;
           options.hidden = true;
           menuButton.setAttribute("aria-expanded", "false");
           snoozeIncident(item.key, duration);
@@ -230,7 +236,10 @@ function renderIncidentList(items, container, isSnoozed) {
       }
       menu.appendChild(options);
       menu.addEventListener("focusout", (event) => {
-        if (!menu.contains(event.relatedTarget)) {
+        if (menu.isConnected && !menu.contains(event.relatedTarget)) {
+          if (openSnoozeMenuKey === item.key) {
+            openSnoozeMenuKey = null;
+          }
           options.hidden = true;
           menuButton.setAttribute("aria-expanded", "false");
         }
@@ -254,6 +263,7 @@ function render(alertingItems, snoozedItems) {
   snoozedItems = snoozedItems || [];
   lastAlertingItems = alertingItems;
   lastSnoozedItems = snoozedItems;
+  const snoozeMenuKeyToRestore = retainedSnoozeMenuKey(openSnoozeMenuKey, alertingItems);
 
   setSectionSummary(incidentSummary, formatIncidentCount(alertingItems.length), incidentDetailsVisible);
   if (alertingItems.length > 0) {
@@ -268,6 +278,7 @@ function render(alertingItems, snoozedItems) {
     : "section-summary status-connected";
 
   incidents.replaceChildren();
+  openSnoozeMenuKey = snoozeMenuKeyToRestore;
 
   if (alertingItems.length === 0) {
     const emptyMessage = document.createElement("div");

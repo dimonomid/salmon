@@ -11,6 +11,7 @@ const {
   summarizeServers,
   isIncidentStale,
   formatIncidentState,
+  retainedSnoozeMenuKey,
   iconURL,
 } = require("../assets/webroot/ui_helpers.js");
 
@@ -103,6 +104,14 @@ test("marks stale and snoozed incident states", () => {
     formatIncidentState("error", {stale: true, snoozed: true}),
     "error (STALE, SNOOZED)",
   );
+});
+
+test("retains an open snooze menu while its incident still exists", () => {
+  const incidents = [{key: "disk"}, {key: "systemd"}];
+
+  assert.equal(retainedSnoozeMenuKey("disk", incidents), "disk");
+  assert.equal(retainedSnoozeMenuKey("missing", incidents), null);
+  assert.equal(retainedSnoozeMenuKey(null, incidents), null);
 });
 
 test("selects incident icons", () => {
