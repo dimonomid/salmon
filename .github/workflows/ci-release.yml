@@ -1,0 +1,144 @@
+name: ci-release
+
+on:
+  push:
+    branches:
+      - master
+      - 'release-*'
+
+permissions:
+  contents: read
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      releases_created: ${{ steps.release-please.outputs.releases_created }}
+      tag_name: ${{ steps.release-please.outputs.tag_name }}
+    permissions:
+      issues: write
+      contents: write
+      pull-requests: write
+    steps:
+      - id: release-please
+        name: Release please
+        uses: googleapis/release-please-action@v4
+        with:
+          release-type: go
+          target-branch: ${{ github.ref_name }}
+
+  build-linux:
+    name: Build (Linux)
+    needs: release-please
+    if: needs.release-please.outputs.releases_created == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install salmon-watch build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc libgtk-3-dev libayatana-appindicator3-dev
+
+      - name: Build binaries
+        run: |
+          mkdir dist
+          go build -trimpath -o dist/salmon ./cmd/salmon
+          go build -trimpath -o dist/salmon-watch ./cmd/salmon-watch
+
+      - name: Package binaries
+        run: |
+          mkdir release
+          tar -czf "release/salmon_linux_${RUNNER_ARCH}.tar.gz" -C dist salmon
+          tar -czf "release/salmon-watch_linux_${RUNNER_ARCH}.tar.gz" -C dist salmon-watch
+
+      - name: Upload release candidates
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: release/*
+          if-no-files-found: error
+
+  build-salmon-watch:
+    name: Build salmon-watch (${{ matrix.os }})
+    needs: release-please
+    if: needs.release-please.outputs.releases_created == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos
+            runner: macos-latest
+            output: salmon-watch
+          - os: windows
+            runner: windows-latest
+            output: salmon-watch.exe
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Create output directory
+        run: mkdir dist
+
+      - name: Build salmon-watch
+        run: go build -trimpath -o "dist/${{ matrix.output }}" ./cmd/salmon-watch
+
+      - name: Package macOS binary
+        if: matrix.os == 'macos'
+        run: |
+          mkdir release
+          tar -czf "release/salmon-watch_macos_${RUNNER_ARCH}.tar.gz" -C dist salmon-watch
+
+      - name: Package Windows binary
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path release
+          Compress-Archive -Path dist/salmon-watch.exe -DestinationPath "release/salmon-watch_windows_${env:RUNNER_ARCH}.zip"
+
+      - name: Upload release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os }}
+          path: release/*
+          if-no-files-found: error
+
+  publish:
+    name: Attach binaries to release
+    needs:
+      - release-please
+      - build-linux
+      - build-salmon-watch
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release candidates
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Upload binaries to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: gh release upload "$TAG" release/* --clobber --repo "$GITHUB_REPOSITORY"
