@@ -3,7 +3,11 @@ SHELL := bash
 VERSION != git describe --dirty --tags --always
 COMMIT != git rev-parse HEAD
 DATE != date -u +"%Y-%m-%dT%H:%M:%SZ"
-GOEXE != go env GOEXE
+
+GOEXE :=
+ifeq ($(OS),Windows_NT)
+GOEXE := .exe
+endif
 
 LDFLAGS := -s -w \
 	-X 'github.com/dimonomid/salmon/version.version=$(patsubst v%,%,$(VERSION))' \
