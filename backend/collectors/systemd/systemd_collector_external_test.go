@@ -149,7 +149,8 @@ func TestCollectorResolvePolicyRequiresContinuousRecovery(t *testing.T) {
 	// must not resolve an existing auto-restart incident.
 	provider.updates <- systemdUnitUpdate("flapping.service", "activating", "start")
 	provider.updates <- &systemd.UnitUpdate{Err: errors.New("transitional barrier")}
-	receiveSystemdUpdate(t, updates)
+	assertDeferredSystemdItem(t, updates, "services.flapping.service", salmon.ItemStateWarning, `Unit flapping.service is activating (start); incident remains unresolved: state "activating" does not contribute to recovery (resolve.states: [active inactive not-sent-by-systemd])`)
+	assertSystemdUpdateError(t, updates, "transitional barrier")
 	mockClock.Add(10 * time.Second)
 	assertNoSystemdUpdate(t, updates)
 	provider.updates <- systemdUnitUpdate("flapping.service", "activating", "auto-restart")
@@ -157,17 +158,15 @@ func TestCollectorResolvePolicyRequiresContinuousRecovery(t *testing.T) {
 
 	provider.updates <- systemdUnitUpdate("flapping.service", "active", "running")
 	provider.updates <- &systemd.UnitUpdate{Err: errors.New("healthy barrier")}
-	if update := receiveSystemdUpdate(t, updates); update.Err == nil || !strings.Contains(update.Err.Error(), "healthy barrier") {
-		t.Fatalf("barrier update = %#v, want healthy barrier error", update)
-	}
+	assertDeferredSystemdItem(t, updates, "services.flapping.service", salmon.ItemStateWarning, "Unit flapping.service is active (running); incident resolves after 5s in this state")
+	assertSystemdUpdateError(t, updates, "healthy barrier")
 	assertNoSystemdUpdate(t, updates)
 
 	mockClock.Add(3 * time.Second)
 	provider.updates <- systemdUnitUpdate("flapping.service", "active", "exited")
 	provider.updates <- &systemd.UnitUpdate{Err: errors.New("updated healthy barrier")}
-	if update := receiveSystemdUpdate(t, updates); update.Err == nil || !strings.Contains(update.Err.Error(), "updated healthy barrier") {
-		t.Fatalf("barrier update = %#v, want updated healthy barrier error", update)
-	}
+	assertDeferredSystemdItem(t, updates, "services.flapping.service", salmon.ItemStateWarning, "Unit flapping.service is active (exited); incident resolves after 5s in this state")
+	assertSystemdUpdateError(t, updates, "updated healthy barrier")
 	mockClock.Add(2 * time.Second)
 	recovered := receiveSystemdUpdate(t, updates)
 	assertSystemdItem(t, recovered, "services.flapping.service", salmon.ItemStateOK)
@@ -179,7 +178,8 @@ func TestCollectorResolvePolicyRequiresContinuousRecovery(t *testing.T) {
 	assertSystemdItem(t, receiveSystemdUpdate(t, updates), "services.flapping.service", salmon.ItemStateWarning)
 	provider.updates <- systemdUnitUpdate("flapping.service", "active", "running")
 	provider.updates <- &systemd.UnitUpdate{Err: errors.New("second healthy barrier")}
-	receiveSystemdUpdate(t, updates)
+	assertDeferredSystemdItem(t, updates, "services.flapping.service", salmon.ItemStateWarning, "Unit flapping.service is active (running); incident resolves after 5s in this state")
+	assertSystemdUpdateError(t, updates, "second healthy barrier")
 	mockClock.Add(2 * time.Second)
 	provider.updates <- systemdUnitUpdate("flapping.service", "activating", "auto-restart-queued")
 	assertSystemdItem(t, receiveSystemdUpdate(t, updates), "services.flapping.service", salmon.ItemStateWarning)
@@ -188,7 +188,8 @@ func TestCollectorResolvePolicyRequiresContinuousRecovery(t *testing.T) {
 
 	provider.updates <- systemdUnitUpdate("flapping.service", "active", "running")
 	provider.updates <- &systemd.UnitUpdate{Err: errors.New("final healthy barrier")}
-	receiveSystemdUpdate(t, updates)
+	assertDeferredSystemdItem(t, updates, "services.flapping.service", salmon.ItemStateWarning, "Unit flapping.service is active (running); incident resolves after 5s in this state")
+	assertSystemdUpdateError(t, updates, "final healthy barrier")
 	mockClock.Add(5 * time.Second)
 	assertSystemdItem(t, receiveSystemdUpdate(t, updates), "services.flapping.service", salmon.ItemStateOK)
 
@@ -198,7 +199,8 @@ func TestCollectorResolvePolicyRequiresContinuousRecovery(t *testing.T) {
 	assertSystemdItem(t, receiveSystemdUpdate(t, updates), "services.flapping.service", salmon.ItemStateWarning)
 	provider.updates <- &systemd.UnitUpdate{Units: map[string]*systemd.Unit{"flapping.service": nil}}
 	provider.updates <- &systemd.UnitUpdate{Err: errors.New("missing-unit barrier")}
-	receiveSystemdUpdate(t, updates)
+	assertDeferredSystemdItem(t, updates, "services.flapping.service", salmon.ItemStateWarning, "Unit flapping.service was not reported by systemd; incident resolves after 5s in this state")
+	assertSystemdUpdateError(t, updates, "missing-unit barrier")
 	mockClock.Add(5 * time.Second)
 	missing := receiveSystemdUpdate(t, updates)
 	assertSystemdItem(t, missing, "services.flapping.service", salmon.ItemStateOK)
@@ -247,7 +249,8 @@ func TestCollectorResolvePolicyUsesConfiguredStates(t *testing.T) {
 	assertSystemdItem(t, receiveSystemdUpdate(t, updates), "services.custom-recovery.service", salmon.ItemStateWarning)
 	provider.updates <- systemdUnitUpdate("custom-recovery.service", "activating", "start")
 	provider.updates <- &systemd.UnitUpdate{Err: errors.New("configured-state barrier")}
-	receiveSystemdUpdate(t, updates)
+	assertDeferredSystemdItem(t, updates, "services.custom-recovery.service", salmon.ItemStateWarning, "Unit custom-recovery.service is activating (start); incident resolves after 1s in this state")
+	assertSystemdUpdateError(t, updates, "configured-state barrier")
 	mockClock.Add(time.Second)
 	assertSystemdItem(t, receiveSystemdUpdate(t, updates), "services.custom-recovery.service", salmon.ItemStateOK)
 }
@@ -289,7 +292,8 @@ func TestCollectorResolvePolicyDisallowedOKStateResetsTimer(t *testing.T) {
 
 	provider.updates <- systemdUnitUpdate("reset-recovery.service", "active", "running")
 	provider.updates <- &systemd.UnitUpdate{Err: errors.New("first allowed-state barrier")}
-	receiveSystemdUpdate(t, updates)
+	assertDeferredSystemdItem(t, updates, "services.reset-recovery.service", salmon.ItemStateWarning, "Unit reset-recovery.service is active (running); incident resolves after 5s in this state")
+	assertSystemdUpdateError(t, updates, "first allowed-state barrier")
 	mockClock.Add(3 * time.Second)
 
 	// activating is OK according to the rules, but it is not in resolve.states.
@@ -297,13 +301,15 @@ func TestCollectorResolvePolicyDisallowedOKStateResetsTimer(t *testing.T) {
 	// incident or allowing that timer to finish in the background.
 	provider.updates <- systemdUnitUpdate("reset-recovery.service", "activating", "start")
 	provider.updates <- &systemd.UnitUpdate{Err: errors.New("disallowed-state barrier")}
-	receiveSystemdUpdate(t, updates)
+	assertDeferredSystemdItem(t, updates, "services.reset-recovery.service", salmon.ItemStateWarning, `Unit reset-recovery.service is activating (start); incident remains unresolved: state "activating" does not contribute to recovery (resolve.states: [active])`)
+	assertSystemdUpdateError(t, updates, "disallowed-state barrier")
 	mockClock.Add(5 * time.Second)
 	assertNoSystemdUpdate(t, updates)
 
 	provider.updates <- systemdUnitUpdate("reset-recovery.service", "active", "running")
 	provider.updates <- &systemd.UnitUpdate{Err: errors.New("second allowed-state barrier")}
-	receiveSystemdUpdate(t, updates)
+	assertDeferredSystemdItem(t, updates, "services.reset-recovery.service", salmon.ItemStateWarning, "Unit reset-recovery.service is active (running); incident resolves after 5s in this state")
+	assertSystemdUpdateError(t, updates, "second allowed-state barrier")
 	mockClock.Add(4 * time.Second)
 	assertNoSystemdUpdate(t, updates)
 	mockClock.Add(time.Second)
@@ -354,19 +360,21 @@ func TestCollectorLogsStateChangesWhileResolutionIsDeferred(t *testing.T) {
 	// state for the incident, so the log should explain why it remains active.
 	provider.updates <- systemdUnitUpdate("flapping.service", "activating", "start")
 	provider.updates <- &systemd.UnitUpdate{Err: errors.New("disallowed-state barrier")}
-	receiveSystemdUpdate(t, updates)
+	assertDeferredSystemdItem(t, updates, "services.flapping.service", salmon.ItemStateWarning, `Unit flapping.service is activating (start); incident remains unresolved: state "activating" does not contribute to recovery (resolve.states: [active])`)
+	assertSystemdUpdateError(t, updates, "disallowed-state barrier")
 
 	// Entering an allowed recovery state starts the timer and should log the
 	// current systemd state and the recovery requirement.
 	provider.updates <- systemdUnitUpdate("flapping.service", "active", "running")
 	provider.updates <- &systemd.UnitUpdate{Err: errors.New("allowed-state barrier")}
-	receiveSystemdUpdate(t, updates)
+	assertDeferredSystemdItem(t, updates, "services.flapping.service", salmon.ItemStateWarning, "Unit flapping.service is active (running); incident resolves after 5s in this state")
+	assertSystemdUpdateError(t, updates, "allowed-state barrier")
 
 	// Repeating the identical state may result from another DBus property update;
 	// it must not repeat the state-change log.
 	provider.updates <- systemdUnitUpdate("flapping.service", "active", "running")
 	provider.updates <- &systemd.UnitUpdate{Err: errors.New("duplicate-state barrier")}
-	receiveSystemdUpdate(t, updates)
+	assertSystemdUpdateError(t, updates, "duplicate-state barrier")
 
 	data, err := os.ReadFile(logPath)
 	if err != nil {
@@ -635,6 +643,21 @@ func assertNoSystemdUpdate(t *testing.T, updates <-chan *collectors.Update) {
 	case update := <-updates:
 		t.Fatalf("unexpected systemd collector update: %#v", update)
 	default:
+	}
+}
+
+func assertDeferredSystemdItem(t *testing.T, updates <-chan *collectors.Update, key salmon.ItemKey, state salmon.ItemState, details string) {
+	t.Helper()
+	update := receiveSystemdUpdate(t, updates)
+	assertSystemdItem(t, update, key, state)
+	assertSystemdDetails(t, update, key, details)
+}
+
+func assertSystemdUpdateError(t *testing.T, updates <-chan *collectors.Update, message string) {
+	t.Helper()
+	update := receiveSystemdUpdate(t, updates)
+	if update.Err == nil || !strings.Contains(update.Err.Error(), message) {
+		t.Fatalf("update = %#v, want error containing %q", update, message)
 	}
 }
 

@@ -165,6 +165,10 @@ func (c *Collector) run(providerUpdCh chan *UnitUpdate) {
 	// created each active incident. A present nil value means that the incident
 	// has no delayed-resolution policy and should resolve on its next OK update.
 	incidentResolve := make(map[salmon.ItemKey]*ConfigResolve)
+	// incidentStates retains the latest non-OK severity for each incident. While
+	// resolution is deferred, updates use this severity with the unit's current
+	// details so consumers see the new systemd state without resolving it.
+	incidentStates := make(map[salmon.ItemKey]salmon.ItemState)
 
 	// pendingResolutions contains incidents currently receiving a qualifying OK
 	// state and waiting for their configured recovery duration to elapse.
@@ -211,6 +215,7 @@ func (c *Collector) run(providerUpdCh chan *UnitUpdate) {
 
 			delete(pendingResolutions, ready.key)
 			delete(incidentResolve, ready.key)
+			delete(incidentStates, ready.key)
 			delete(deferredResolutionStates, ready.key)
 			if !c.sendUpdate(&collectors.Update{Items: map[salmon.ItemKey]*salmon.Item{
 				ready.key: pending.item,
@@ -293,6 +298,7 @@ func (c *Collector) run(providerUpdCh chan *UnitUpdate) {
 				if _, exists := incidentResolve[item.Key]; !exists {
 					incidentResolve[item.Key] = resolve
 				}
+				incidentStates[item.Key] = item.State
 				upd.Items[item.Key] = item
 				continue
 			}
@@ -303,6 +309,7 @@ func (c *Collector) run(providerUpdCh chan *UnitUpdate) {
 				// by conditions without a resolve policy, are published immediately.
 				cancelPendingResolution(item.Key)
 				delete(incidentResolve, item.Key)
+				delete(incidentStates, item.Key)
 				delete(deferredResolutionStates, item.Key)
 				upd.Items[item.Key] = item
 				continue
@@ -315,7 +322,25 @@ func (c *Collector) run(providerUpdCh chan *UnitUpdate) {
 				deferredResolutionStates[item.Key] = deferredState
 			}
 
-			if !containsUnitState(resolve.States, unit.State) {
+			contributesToResolution := containsUnitState(resolve.States, unit.State)
+			if stateChanged {
+				// Publish the new unit details as an incident update, but retain the
+				// last non-OK severity until the recovery policy actually resolves it.
+				deferredItem := *item
+				deferredItem.State = incidentStates[item.Key]
+				if contributesToResolution {
+					deferredItem.Details = fmt.Sprintf(
+						"%s; incident resolves after %s in this state",
+						item.Details, resolve.After)
+				} else {
+					deferredItem.Details = fmt.Sprintf(
+						"%s; incident remains unresolved: state %q does not contribute to recovery (resolve.states: %v)",
+						item.Details, unit.State, resolve.States)
+				}
+				upd.Items[item.Key] = &deferredItem
+			}
+
+			if !contributesToResolution {
 				// An OK state outside the configured recovery set does not prove
 				// that this incident has recovered. Stop any running timer and wait
 				// for one of the explicitly configured states.
