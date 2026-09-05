@@ -235,3 +235,9 @@ Same requirements as for building.
 ```
 make test
 ```
+
+## Documentation
+
+- [Configuring Salmon](./docs/salmon_config.md)
+- [Configuring Salmon-Watch](./docs/salmon_watch_config.md)
+- [Security](./docs/security.md)
