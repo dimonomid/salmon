@@ -113,10 +113,13 @@ The tray icon shows the worst current non-snoozed state:
 The easiest way to install both `salmon` and `salmon-watch` to monitor local
 machine health is as follows:
 
-```bash
-# Download both prebuilt binaries from GitHub:
-# TODO: fill it when prebuilt binaries are set up on github
+First, download the [latest prebuilt binaries from GitHub](https://github.com/dimonomid/salmon/releases/tag/v1.0.0),
+like `salmon_1.0.0_linux_amd64.tar.gz` and `salmon-watch_1.0.0_linux_amd64.tar.gz`,
+and unpack them. You'll get two binaries: `salmon` and `salmon-watch`.
 
+Then:
+
+```bash
 # Install both binaries system-wide:
 sudo install -m 755 salmon /usr/local/bin/salmon
 sudo install -m 755 salmon-watch /usr/local/bin/salmon-watch
