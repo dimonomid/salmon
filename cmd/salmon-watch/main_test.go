@@ -81,6 +81,14 @@ func TestWatchLauncherPathRespectsXDGDataHome(t *testing.T) {
 	if want := filepath.Join(xdgDataHome, "applications", "salmon-watch.desktop"); launcherPath != want {
 		t.Fatalf("default launcher path = %q, want %q", launcherPath, want)
 	}
+
+	iconPath, err := defaultWatchIconPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(xdgDataHome, "icons", "hicolor", "scalable", "apps", "salmon-watch.svg"); iconPath != want {
+		t.Fatalf("default icon path = %q, want %q", iconPath, want)
+	}
 }
 
 func TestWatchSetupAllowsExplicitConfigWithoutUserConfigDirectory(t *testing.T) {
@@ -229,7 +237,7 @@ func TestWatchAutostartTemplateIncludesExecutableAndConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Type=Application", "Exec=\"/home/user/.local/bin/salmon-watch\" --config \"/home/user/.config/salmon-watch/salmon-watch.yml\"", "Terminal=false"} {
+	for _, want := range []string{"Type=Application", "Icon=salmon-watch", "Exec=\"/home/user/.local/bin/salmon-watch\" --config \"/home/user/.config/salmon-watch/salmon-watch.yml\"", "Terminal=false"} {
 		if !strings.Contains(entry, want) {
 			t.Fatalf("entry %q does not contain %q", entry, want)
 		}

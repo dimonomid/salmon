@@ -53,6 +53,17 @@ func installWatchLauncher(output io.Writer, configFilename string) error {
 	if err != nil {
 		return err
 	}
+	iconPath, err := defaultWatchIconPath()
+	if err != nil {
+		return err
+	}
+	iconCreated, err := setup.EnsureFile(iconPath, string(mustEmbeddedAsset("assets/webroot/favicon.svg")))
+	if err != nil {
+		return err
+	}
+	if err := setup.ReportEnsureResult(output, "application icon", iconPath, iconCreated); err != nil {
+		return err
+	}
 	launcherPath, err := defaultWatchLauncherPath()
 	if err != nil {
 		return err
@@ -121,6 +132,15 @@ func defaultWatchLauncherPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dataHome, "applications", "salmon-watch.desktop"), nil
+}
+
+// defaultWatchIconPath returns the scalable XDG application-icon path.
+func defaultWatchIconPath() (string, error) {
+	dataHome, err := userDataHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dataHome, "icons", "hicolor", "scalable", "apps", "salmon-watch.svg"), nil
 }
 
 // watchStartCommand returns a command that starts Salmon Watch with the given
