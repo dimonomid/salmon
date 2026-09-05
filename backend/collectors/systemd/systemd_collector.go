@@ -37,6 +37,14 @@ type resolutionReady struct {
 	generation uint64
 }
 
+// deferredResolutionUnitState remembers the last systemd state logged while
+// an incident remained unresolved under its resolve policy. It prevents
+// unrelated DBus property updates from repeating the same message.
+type deferredResolutionUnitState struct {
+	state    UnitState
+	subState string
+}
+
 var _ collectors.Collector = &Collector{}
 
 type CollectorParams struct {
@@ -162,6 +170,10 @@ func (c *Collector) run(providerUpdCh chan *UnitUpdate) {
 	// state and waiting for their configured recovery duration to elapse.
 	pendingResolutions := make(map[salmon.ItemKey]*pendingResolution)
 
+	// deferredResolutionStates tracks the last state reported while resolution
+	// was delayed, so each actual state or substate transition is logged once.
+	deferredResolutionStates := make(map[salmon.ItemKey]deferredResolutionUnitState)
+
 	// Timer callbacks send only an identity through resolutionReadyCh. The run
 	// goroutine remains the sole owner of the maps and verifies the generation
 	// before publishing the pending OK item.
@@ -199,6 +211,7 @@ func (c *Collector) run(providerUpdCh chan *UnitUpdate) {
 
 			delete(pendingResolutions, ready.key)
 			delete(incidentResolve, ready.key)
+			delete(deferredResolutionStates, ready.key)
 			if !c.sendUpdate(&collectors.Update{Items: map[salmon.ItemKey]*salmon.Item{
 				ready.key: pending.item,
 			}}) {
@@ -276,6 +289,7 @@ func (c *Collector) run(providerUpdCh chan *UnitUpdate) {
 				// policy of the condition that originally created the incident,
 				// rather than replacing it as the unit moves through failure states.
 				cancelPendingResolution(item.Key)
+				delete(deferredResolutionStates, item.Key)
 				if _, exists := incidentResolve[item.Key]; !exists {
 					incidentResolve[item.Key] = resolve
 				}
@@ -289,8 +303,16 @@ func (c *Collector) run(providerUpdCh chan *UnitUpdate) {
 				// by conditions without a resolve policy, are published immediately.
 				cancelPendingResolution(item.Key)
 				delete(incidentResolve, item.Key)
+				delete(deferredResolutionStates, item.Key)
 				upd.Items[item.Key] = item
 				continue
+			}
+
+			deferredState := deferredResolutionUnitState{state: unit.State, subState: unit.SubState}
+			lastDeferredState, stateAlreadyLogged := deferredResolutionStates[item.Key]
+			stateChanged := !stateAlreadyLogged || lastDeferredState != deferredState
+			if stateChanged {
+				deferredResolutionStates[item.Key] = deferredState
 			}
 
 			if !containsUnitState(resolve.States, unit.State) {
@@ -298,7 +320,18 @@ func (c *Collector) run(providerUpdCh chan *UnitUpdate) {
 				// that this incident has recovered. Stop any running timer and wait
 				// for one of the explicitly configured states.
 				cancelPendingResolution(item.Key)
+				if stateChanged {
+					c.params.Common.Logger.Log(logs.Info,
+						"Incident remains unresolved: %s: %s; state %q is not in resolve.states %v",
+						item.Key, item.Details, unit.State, resolve.States)
+				}
 				continue
+			}
+
+			if stateChanged {
+				c.params.Common.Logger.Log(logs.Info,
+					"Incident resolution pending: %s: %s; resolve requires %s of continuous recovery in states %v",
+					item.Key, item.Details, resolve.After, resolve.States)
 			}
 
 			if pending := pendingResolutions[item.Key]; pending != nil {

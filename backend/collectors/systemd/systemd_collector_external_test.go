@@ -2,6 +2,7 @@ package systemd_test
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -294,6 +295,78 @@ func TestCollectorResolvePolicyDisallowedOKStateResetsTimer(t *testing.T) {
 	assertNoSystemdUpdate(t, updates)
 	mockClock.Add(time.Second)
 	assertSystemdItem(t, receiveSystemdUpdate(t, updates), "services.reset-recovery.service", salmon.ItemStateOK)
+}
+
+func TestCollectorLogsStateChangesWhileResolutionIsDeferred(t *testing.T) {
+	updates := make(chan *collectors.Update, 8)
+	mockClock := clock.NewMock()
+	logPath := t.TempDir() + "/systemd.log"
+	logger := logs.NewLogger(logs.LoggerParams{
+		Clock: mockClock,
+		Sinks: []logs.LoggerSinkParams{{Filepath: logPath, MinLevel: logs.Info}},
+	})
+	var provider *controlledProvider
+	collector, err := systemd.NewCollector(systemd.CollectorParams{
+		Common: collectors.Params{ID: "services", Logger: logger, UpdatesChan: updates},
+		Clock:  mockClock,
+		Config: systemd.Config{UnitRules: []systemd.ConfigUnitRule{{
+			Type: "service",
+			Conditions: []systemd.ConfigCondition{
+				{
+					SubStateContains: "auto-restart",
+					Result:           salmon.ItemStateWarning,
+					Resolve: &systemd.ConfigResolve{
+						After:  5 * time.Second,
+						States: []systemd.UnitState{"active"},
+					},
+				},
+				{State: "active", Result: salmon.ItemStateOK},
+				{State: "activating", Result: salmon.ItemStateOK},
+			},
+		}}},
+		ProviderFactory: func(params systemd.ProviderParams) (systemd.Provider, error) {
+			provider = &controlledProvider{updates: params.UnitUpdatesChan, closed: make(chan struct{})}
+			return provider, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(collector.Close)
+
+	provider.updates <- systemdUnitUpdate("flapping.service", "activating", "auto-restart")
+	assertSystemdItem(t, receiveSystemdUpdate(t, updates), "services.flapping.service", salmon.ItemStateWarning)
+
+	// This state is OK under the general rule, but it is not an allowed recovery
+	// state for the incident, so the log should explain why it remains active.
+	provider.updates <- systemdUnitUpdate("flapping.service", "activating", "start")
+	provider.updates <- &systemd.UnitUpdate{Err: errors.New("disallowed-state barrier")}
+	receiveSystemdUpdate(t, updates)
+
+	// Entering an allowed recovery state starts the timer and should log the
+	// current systemd state and the recovery requirement.
+	provider.updates <- systemdUnitUpdate("flapping.service", "active", "running")
+	provider.updates <- &systemd.UnitUpdate{Err: errors.New("allowed-state barrier")}
+	receiveSystemdUpdate(t, updates)
+
+	// Repeating the identical state may result from another DBus property update;
+	// it must not repeat the state-change log.
+	provider.updates <- systemdUnitUpdate("flapping.service", "active", "running")
+	provider.updates <- &systemd.UnitUpdate{Err: errors.New("duplicate-state barrier")}
+	receiveSystemdUpdate(t, updates)
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logText := string(data)
+	if want := `Incident remains unresolved: services.flapping.service: Unit flapping.service is activating (start); state "activating" is not in resolve.states [active]`; !strings.Contains(logText, want) {
+		t.Fatalf("log does not contain %q:\n%s", want, logText)
+	}
+	pendingLog := "Incident resolution pending: services.flapping.service: Unit flapping.service is active (running); resolve requires 5s of continuous recovery in states [active]"
+	if count := strings.Count(logText, pendingLog); count != 1 {
+		t.Fatalf("pending state was logged %d times, want once:\n%s", count, logText)
+	}
 }
 
 func TestCollectorForwardsProviderErrors(t *testing.T) {
