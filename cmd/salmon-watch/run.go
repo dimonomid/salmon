@@ -75,7 +75,6 @@ func (app *watchApp) onReady() {
 	mitemExit := systray.AddMenuItem("Exit", "")
 
 	notify := newDesktopNotificationSink()
-	notify.Push("Hello there", "Salmon Watch started")
 
 	loadTrayIcons()
 
