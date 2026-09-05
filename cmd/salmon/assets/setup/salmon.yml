@@ -23,9 +23,24 @@ core:
               - {result: ok}
 
           # Default rule for all remaining services. Ordinary lifecycle states
-          # are OK; unexpected states such as failed are warnings.
+          # are OK; repeated automatic restart attempts and unexpected states
+          # such as failed are warnings. The specific automatic-restart
+          # condition must come before the general lifecycle conditions.
           - type: service
             conditions:
+              # During an automatic restart, systemd can move a service through
+              # substates such as dead-before-auto-restart, auto-restart, and
+              # auto-restart-queued. These map to different high-level states
+              # (including inactive and activating), so matching only state or
+              # one exact substate would let parts of the same restart cycle
+              # fall through as OK. Matching the shared substring catches the
+              # whole cycle.
+              #
+              # Once this condition starts an incident, resolve requires five
+              # uninterrupted seconds in the stable states "active" or
+              # "inactive" before resolving it. Any other state resets the
+              # wait.
+              - {subStateContains: auto-restart, result: warning, resolve: {after: 5s, states: [active, inactive]}}
               - {state: active, result: ok}
               - {state: inactive, result: ok}
               - {state: activating, result: ok}

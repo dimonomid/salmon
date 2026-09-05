@@ -77,7 +77,6 @@ func (p *ProviderCoreos) runSubscription(
 	defer close(p.done)
 	defer close(p.params.Common.UnitUpdatesChan)
 	defer closeConn()
-
 	for {
 		select {
 		case <-p.stop:
@@ -96,8 +95,9 @@ func (p *ProviderCoreos) runSubscription(
 				}
 
 				m[k] = &Unit{
-					Name:  k,
-					State: UnitState(v.ActiveState),
+					Name:     k,
+					State:    UnitState(v.ActiveState),
+					SubState: v.SubState,
 				}
 			}
 

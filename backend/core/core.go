@@ -142,9 +142,19 @@ func (c *Core) run() {
 					c.params.Logger.Log(logs.Info, "Incident started: %s (%s): %s", item.Key, item.State, item.Details)
 				}
 			}
-			for _, item := range notif.OngoingIncidents.Removed {
-				if item != nil {
-					c.params.Logger.Log(logs.Info, "Incident resolved: %s", item.Key)
+			for _, incident := range notif.OngoingIncidents.Removed {
+				if incident == nil {
+					continue
+				}
+
+				// Removed contains the previous non-OK item. Read the resolving
+				// observation from this collector update so the log explains which
+				// concrete healthy state ended the incident.
+				resolvedItem := upd.Items[incident.Key]
+				if resolvedItem != nil && resolvedItem.Details != "" {
+					c.params.Logger.Log(logs.Info, "Incident resolved: %s: %s", incident.Key, resolvedItem.Details)
+				} else {
+					c.params.Logger.Log(logs.Info, "Incident resolved: %s", incident.Key)
 				}
 			}
 

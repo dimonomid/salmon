@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/dimonomid/salmon"
 	"github.com/dimonomid/salmon/internal/setup"
 	"github.com/dimonomid/salmon/logs"
 )
@@ -241,7 +243,7 @@ func TestLoadConfigRejectsUnknownFields(t *testing.T) {
 	}
 }
 
-func TestLoadConfigUsesSystemdRuleNames(t *testing.T) {
+func TestLoadConfigUsesSystemdRuleFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "salmon.yml")
 	data := []byte(`core:
   collectors:
@@ -250,7 +252,7 @@ func TestLoadConfigUsesSystemdRuleNames(t *testing.T) {
         unitRules:
           - names: [one.service, two.service]
             conditions:
-              - {result: ok}
+              - {subStateContains: auto-restart, result: warning, resolve: {after: 5s, states: [active, inactive]}}
 `)
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
@@ -263,6 +265,10 @@ func TestLoadConfigUsesSystemdRuleNames(t *testing.T) {
 	got := cfg.Core.Collectors[0].Systemd.UnitRules[0].Names
 	if strings.Join(got, ",") != "one.service,two.service" {
 		t.Fatalf("rule names = %#v", got)
+	}
+	condition := cfg.Core.Collectors[0].Systemd.UnitRules[0].Conditions[0]
+	if condition.SubStateContains != "auto-restart" || condition.Resolve == nil || condition.Resolve.After != 5*time.Second || len(condition.Resolve.States) != 2 || condition.Resolve.States[0] != "active" || condition.Resolve.States[1] != "inactive" || condition.Result != salmon.ItemStateWarning {
+		t.Fatalf("rule condition = %#v", condition)
 	}
 }
 

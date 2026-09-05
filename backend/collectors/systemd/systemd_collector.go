@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/benbjohnson/clock"
 	"github.com/dimonomid/salmon"
 	"github.com/dimonomid/salmon/backend/collectors"
 	"github.com/dimonomid/salmon/logs"
@@ -19,12 +20,30 @@ type Collector struct {
 	closeOnce sync.Once
 }
 
+// pendingResolution holds the latest qualifying OK item while its incident's
+// recovery timer is running. The generation distinguishes the current timer
+// from callbacks belonging to earlier, canceled recovery attempts.
+type pendingResolution struct {
+	item       *salmon.Item
+	timer      *clock.Timer
+	generation uint64
+}
+
+// resolutionReady is emitted by a recovery timer. run compares its generation
+// with the pending resolution before publishing the stored OK item, so a timer
+// callback that races with cancellation cannot resolve a newer incident state.
+type resolutionReady struct {
+	key        salmon.ItemKey
+	generation uint64
+}
+
 var _ collectors.Collector = &Collector{}
 
 type CollectorParams struct {
 	Common collectors.Params
 
 	Config Config
+	Clock  clock.Clock
 
 	// ProviderFactory exists primarily so black-box tests can replace the
 	// external systemd/DBus boundary with a controlled provider. Production
@@ -36,6 +55,9 @@ type CollectorParams struct {
 func NewCollector(params CollectorParams) (*Collector, error) {
 	if params.Common.Logger == nil {
 		panic("Logger is required")
+	}
+	if params.Clock == nil {
+		params.Clock = clock.New()
 	}
 	params.Common.Logger = params.Common.Logger.WithNamespaceAppended("SystemdCollector")
 	if err := validateConfig(params.Config); err != nil {
@@ -81,8 +103,32 @@ func validateConfig(config Config) error {
 			seenNames[name] = struct{}{}
 		}
 		for conditionIndex, condition := range rule.Conditions {
+			if condition.SubState != "" && condition.SubStateContains != "" {
+				return fmt.Errorf("rule #%d condition #%d must not specify both subState and subStateContains", ruleIndex, conditionIndex)
+			}
 			if !salmon.IsItemStateValid(condition.Result) {
 				return fmt.Errorf("rule #%d condition #%d has invalid result %q", ruleIndex, conditionIndex, condition.Result)
+			}
+			if condition.Resolve != nil {
+				if condition.Result == salmon.ItemStateOK {
+					return fmt.Errorf("rule #%d condition #%d resolve requires a non-OK result", ruleIndex, conditionIndex)
+				}
+				if condition.Resolve.After <= 0 {
+					return fmt.Errorf("rule #%d condition #%d resolve.after must be positive", ruleIndex, conditionIndex)
+				}
+				if len(condition.Resolve.States) == 0 {
+					return fmt.Errorf("rule #%d condition #%d resolve.states must not be empty", ruleIndex, conditionIndex)
+				}
+				seenStates := make(map[UnitState]struct{}, len(condition.Resolve.States))
+				for stateIndex, state := range condition.Resolve.States {
+					if state == "" {
+						return fmt.Errorf("rule #%d condition #%d resolve state #%d must not be empty", ruleIndex, conditionIndex, stateIndex)
+					}
+					if _, exists := seenStates[state]; exists {
+						return fmt.Errorf("rule #%d condition #%d resolve contains duplicate state %q", ruleIndex, conditionIndex, state)
+					}
+					seenStates[state] = struct{}{}
+				}
 			}
 		}
 	}
@@ -107,7 +153,60 @@ func (c *Collector) run(providerUpdCh chan *UnitUpdate) {
 	firstUpdate := true
 	shuttingDown := false
 
-	for sysUpd := range providerUpdCh {
+	// incidentResolve remembers the policy of the condition that originally
+	// created each active incident. A present nil value means that the incident
+	// has no delayed-resolution policy and should resolve on its next OK update.
+	incidentResolve := make(map[salmon.ItemKey]*ConfigResolve)
+
+	// pendingResolutions contains incidents currently receiving a qualifying OK
+	// state and waiting for their configured recovery duration to elapse.
+	pendingResolutions := make(map[salmon.ItemKey]*pendingResolution)
+
+	// Timer callbacks send only an identity through resolutionReadyCh. The run
+	// goroutine remains the sole owner of the maps and verifies the generation
+	// before publishing the pending OK item.
+	resolutionReadyCh := make(chan resolutionReady, 16)
+	var nextGeneration uint64
+
+	defer func() {
+		for _, pending := range pendingResolutions {
+			pending.timer.Stop()
+		}
+	}()
+
+	cancelPendingResolution := func(key salmon.ItemKey) {
+		if pending := pendingResolutions[key]; pending != nil {
+			pending.timer.Stop()
+			delete(pendingResolutions, key)
+		}
+	}
+
+	for {
+		var sysUpd *UnitUpdate
+		select {
+		case varSysUpd, ok := <-providerUpdCh:
+			if !ok {
+				return
+			}
+			sysUpd = varSysUpd
+		case ready := <-resolutionReadyCh:
+			pending := pendingResolutions[ready.key]
+			if pending == nil || pending.generation != ready.generation {
+				// This timer belongs to a recovery window that was canceled or
+				// superseded after the service became unhealthy again.
+				continue
+			}
+
+			delete(pendingResolutions, ready.key)
+			delete(incidentResolve, ready.key)
+			if !c.sendUpdate(&collectors.Update{Items: map[salmon.ItemKey]*salmon.Item{
+				ready.key: pending.item,
+			}}) {
+				shuttingDown = true
+			}
+			continue
+		}
+
 		if !shuttingDown {
 			select {
 			case <-c.teardown:
@@ -166,13 +265,64 @@ func (c *Collector) run(providerUpdCh chan *UnitUpdate) {
 				}
 			}
 
-			item := c.getItemFromUnit(unit)
+			item, resolve := c.getItemFromUnit(unit)
 			if item == nil {
 				// We're not interested in this unit.
 				continue
 			}
 
-			upd.Items[item.Key] = item
+			if item.State != salmon.ItemStateOK {
+				// A non-OK update interrupts any recovery window. Preserve the
+				// policy of the condition that originally created the incident,
+				// rather than replacing it as the unit moves through failure states.
+				cancelPendingResolution(item.Key)
+				if _, exists := incidentResolve[item.Key]; !exists {
+					incidentResolve[item.Key] = resolve
+				}
+				upd.Items[item.Key] = item
+				continue
+			}
+
+			resolve, incidentExists := incidentResolve[item.Key]
+			if !incidentExists || resolve == nil {
+				// Healthy units that never had an incident, and incidents created
+				// by conditions without a resolve policy, are published immediately.
+				cancelPendingResolution(item.Key)
+				delete(incidentResolve, item.Key)
+				upd.Items[item.Key] = item
+				continue
+			}
+
+			if !containsUnitState(resolve.States, unit.State) {
+				// An OK state outside the configured recovery set does not prove
+				// that this incident has recovered. Stop any running timer and wait
+				// for one of the explicitly configured states.
+				cancelPendingResolution(item.Key)
+				continue
+			}
+
+			if pending := pendingResolutions[item.Key]; pending != nil {
+				// A different qualifying substate does not interrupt recovery. Keep
+				// the original timer, but publish the freshest details when it expires.
+				pending.item = item
+				continue
+			}
+
+			// The incident has entered a configured recovery state and has no
+			// recovery timer yet, so begin a new recovery attempt. Its unique
+			// generation lets run discard the callback if a later update cancels
+			// or replaces this attempt before the duration elapses.
+			nextGeneration++
+			generation := nextGeneration
+			key := item.Key
+			pending := &pendingResolution{item: item, generation: generation}
+			pending.timer = c.params.Clock.AfterFunc(resolve.After, func() {
+				select {
+				case resolutionReadyCh <- resolutionReady{key: key, generation: generation}:
+				case <-c.teardown:
+				}
+			})
+			pendingResolutions[key] = pending
 		}
 
 		// If the update is empty, don't send it.
@@ -201,7 +351,7 @@ func (c *Collector) itemKeyFromSystemdName(name string) salmon.ItemKey {
 	return salmon.ItemKey(c.params.Common.ID + "." + name)
 }
 
-func (c *Collector) getItemFromUnit(unit *Unit) *salmon.Item {
+func (c *Collector) getItemFromUnit(unit *Unit) (*salmon.Item, *ConfigResolve) {
 	for _, rule := range c.params.Config.UnitRules {
 		if len(rule.Names) > 0 && !containsString(rule.Names, unit.Name) {
 			continue
@@ -217,14 +367,21 @@ func (c *Collector) getItemFromUnit(unit *Unit) *salmon.Item {
 			Key:     c.itemKeyFromSystemdName(unit.Name),
 			Details: systemdUnitDetails(unit),
 		}
+		var resolve *ConfigResolve
 
 		for _, cond := range rule.Conditions {
 			if cond.State != "" && cond.State != unit.State {
 				continue
 			}
-
+			if cond.SubState != "" && cond.SubState != unit.SubState {
+				continue
+			}
+			if cond.SubStateContains != "" && !strings.Contains(unit.SubState, cond.SubStateContains) {
+				continue
+			}
 			// Found the matching condition, so use its result
 			item.State = cond.Result
+			resolve = cond.Resolve
 			break
 		}
 
@@ -233,12 +390,21 @@ func (c *Collector) getItemFromUnit(unit *Unit) *salmon.Item {
 			item.State = salmon.ItemStateError
 		}
 
-		return item
+		return item, resolve
 	}
 
 	// Found no rule that applies to the given unit, it means we're not
 	// interested in this unit at all.
-	return nil
+	return nil, nil
+}
+
+func containsUnitState(states []UnitState, want UnitState) bool {
+	for _, state := range states {
+		if state == want {
+			return true
+		}
+	}
+	return false
 }
 
 func systemdUnitDetails(unit *Unit) string {
@@ -246,6 +412,9 @@ func systemdUnitDetails(unit *Unit) string {
 	case UnitStateNotSentBySystemd:
 		return fmt.Sprintf("Unit %s was not reported by systemd", unit.Name)
 	default:
+		if unit.SubState != "" && unit.SubState != string(unit.State) {
+			return fmt.Sprintf("Unit %s is %s (%s)", unit.Name, unit.State, unit.SubState)
+		}
 		return fmt.Sprintf("Unit %s is %s", unit.Name, unit.State)
 	}
 }

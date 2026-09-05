@@ -44,17 +44,74 @@ Anyway, so then the name became something like "systemd et al monitoring".
 Which, if I take some random letters out of it: "Systemd et AL MONitoring",
 becomes "salmon".
 
-Salmon has a server part (running locally and/or on remote machine(s) and
-actually checking their health) and a desktop client part. The client is called
-`salmon-watch`: it watches the status reported by one or more Salmon servers
-via websocket, and provides a tray icon with a web UI.
+## Overview
 
-So all in all, we run `salmon` on every machine we want to monitor health for
-(which can be local machine as well as any number of servers), and we run
-`salmon-watch` on desktop, which will connect to all the `salmon`s it's
-configured to check and show a tray icon.
+This project has two main parts:
 
-## Installation Quick Start
+  * `salmon` runs on a machine, checks its health, and serves the current
+    incidents via simple read-only WebSocket API;
+  * `salmon-watch` connects to one or more `salmon`s, receives data from them,
+    shows a tray icon, sends desktop notifications, and provides a local web
+    UI.
+
+So `salmon` is a server (which can run locally too), and `salmon-watch` is a
+client which runs on e.g. a laptop. If we have a laptop and two servers, a
+typical setup looks like this:
+
+```
+  ┌─────────────────────────────────┐
+  │             Laptop              │
+  │                                 │
+  │  ┌────────┐    ┌──────────────┐ │
+  │  │ salmon │───▶│ salmon-watch │ │
+  │  └────────┘    └──────────────┘ │
+  │                    ▲      ▲     │
+  └────────────────────│──────│─────┘
+  ┌──────────────┐     │      │
+  │   Server 1   │     │      │
+  │              │     │      │
+  │  ┌────────┐  │     │      │
+  │  │ salmon │──┼─────┘      │
+  │  └────────┘  │            │
+  └──────────────┘            │
+  ┌──────────────┐            │
+  │   Server 2   │            │
+  │              │            │
+  │  ┌────────┐  │            │
+  │  │ salmon │──┼────────────┘
+  │  └────────┘  │
+  └──────────────┘
+```
+
+Salmon reports incidents, each of them has:
+
+- A key, like `systemd.my-service` or `free-space.exec-result`
+- A state: `warning` or `error`
+
+These incidents are generated accordingly to the Salmon configuration. For details
+on that, see [Configuring Salmon](./docs/salmon_config.md).
+
+Salmon-Watch combines these incidents. For each incident, it also prefixes the
+keys with the ID for that particular Salmon like `my-server` (that you specify
+in the Salmon-Watch config) so the key becomes like
+`my-server.systemd.myservice`.
+
+For details about Salmon-Watch configuration, see
+[Configuring Salmon-Watch](./docs/salmon_watch_config.md).
+
+If an incident happens and we want to just acknowledge it but worry about it
+later, we can snooze it in the web UI, so the icon stops being annoying but
+it'll get unsnoozed again later.
+
+The tray icon shows the worst current non-snoozed state:
+
+  * Gray: the initial state isn't known yet;
+  * Green: everything is OK;
+  * Magenta blinking: Salmon-Watch itself has an internal connection or tunnel error;
+  * Yellow blinking: at least one warning;
+  * Red blinking: at least one error.
+
+## Installation Quick Start (Linux)
 
 ### Monitoring local machine
 
@@ -114,9 +171,10 @@ And restart `salmon-watch`. Open its web UI and verify that the list of servers
 now includes your newly added remote server as well.
 
 SSH tunnel is not the only way to access remote servers; salmon also supports
-TLS and bearer token authentication. For details, see documentation.
+TLS and bearer token authentication. For details, see docs on
+[Security](./docs/security.md).
 
-## Default config
+## Configuration
 
 The default config (which `sudo salmon setup` writes to `/etc/salmon.yml`) is
 as follows: if any systemd service is failing, it's a warning (the tray icon
@@ -124,9 +182,60 @@ will be blinking yellow). If there's less than 100 MiB of free space in the
 root partition, it's an error (the tray icon will be blinking red). Otherwise,
 it's all good (the tray icon is green).
 
-The config has comments and examples, so check it out and play with it. For
-example, I like to list some services that I particularly care about (such as
-syncthing) for which I want to trigger an error, not a warning. And I have some
-more custom exec checks as well.
+The config includes comments and examples, so take a look and experiment with
+it; and also check the [Configuring Salmon](./docs/salmon_config.md) docs. For
+instance, I like to explicitly list services I particularly care about, such as
+Syncthing, and configure any state other than `active` as an error rather than
+a warning. That includes services stopped manually - if it was manually stopped
+for some reason, I want to be annoyed by the blinking icon until the service is
+running again. And I have some more custom exec checks as well.
 
-Don't forget to restart the systemd service to apply the changes.
+Don't forget to restart the salmon systemd service to apply the changes.
+
+## Non-Linux OS support
+
+So far Salmon was only tested on Linux. The tray icon library is crossplatform
+and is known to work on Windows and MacOS, so there's nothing preventing
+`salmon-watch` from working on these OSes, and you can run it there and monitor
+your remote Linux servers, but not so much the local machine.
+
+Even `salmon` can technically run on non-Linux, but obviously the `systemd` is
+irrelevant there, and then the only useful check there is `exec`: just polling
+some script periodically, so we lose the out-of-the-box system-wide system
+service monitoring, and thus the usefulness is limited.  Would be cool to
+implement systemd-like checks for Windows and MacOS, but I don't use these so
+hard to test. PRs are welcome.
+
+## Development
+
+### Building
+
+You need [Go](https://go.dev/) 1.26.
+
+For `salmon-watch`, you also need some UI-related libraries, which on Ubuntu
+can be installed like this:
+
+```
+sudo apt-get install -y gcc libgtk-3-dev libayatana-appindicator3-dev
+```
+
+Having that, to build both `salmon` and `salmon-watch`:
+
+```
+make
+```
+
+To build only one of them:
+
+```
+make salmon
+make salmon-watch
+```
+
+### Running tests
+
+Same requirements as for building.
+
+```
+make test
+```

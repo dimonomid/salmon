@@ -69,7 +69,7 @@ func TestCorePublishesCommandIncidentLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForFileText(t, logPath, "[ ok ] probe.exec_result")
-	waitForFileText(t, applicationLogPath, "Incident resolved: probe.exec_result")
+	waitForFileText(t, applicationLogPath, "Incident resolved: probe.exec_result: probe must be healthy: exit code: 0")
 
 	done := make(chan struct{})
 	go func() {

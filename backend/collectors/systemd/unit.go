@@ -14,4 +14,6 @@ const UnitStateNotSentBySystemd UnitState = "not-sent-by-systemd"
 type Unit struct {
 	Name  string
 	State UnitState
+	// SubState is systemd's unit-type-specific refinement of State.
+	SubState string
 }

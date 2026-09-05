@@ -25,11 +25,19 @@ func TestProviderCoreosSubscriptionLoopStopsOnClose(t *testing.T) {
 	}()
 
 	updates <- map[string]*dbus.UnitStatus{
-		"sync.service": {Name: "sync.service", ActiveState: "failed"},
+		"sync.service":    {Name: "sync.service", ActiveState: "activating", SubState: "auto-restart"},
+		"queued.service":  {Name: "queued.service", ActiveState: "activating", SubState: "auto-restart-queued"},
+		"healthy.service": {Name: "healthy.service", ActiveState: "active", SubState: "running"},
 	}
 	update := receiveProviderUpdate(t, unitUpdates)
-	if got := update.Units["sync.service"]; got == nil || got.Name != "sync.service" || got.State != "failed" {
+	if got := update.Units["sync.service"]; got == nil || got.Name != "sync.service" || got.State != "activating" || got.SubState != "auto-restart" {
 		t.Fatalf("translated unit = %#v", got)
+	}
+	if got := update.Units["queued.service"]; got == nil || got.SubState != "auto-restart-queued" {
+		t.Fatalf("translated queued unit = %#v", got)
+	}
+	if got := update.Units["healthy.service"]; got == nil || got.State != "active" || got.SubState != "running" {
+		t.Fatalf("translated healthy unit = %#v", got)
 	}
 
 	wantError := errors.New("subscription failed")
