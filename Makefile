@@ -29,6 +29,7 @@ generate:
 
 .PHONY: salmon
 salmon: generate
+	@echo Building bin/salmon$(GOEXE)
 	@go build \
 		-trimpath \
 		-o bin/salmon$(GOEXE) \
@@ -37,6 +38,7 @@ salmon: generate
 
 .PHONY: salmon-watch
 salmon-watch: generate
+	@echo Building bin/salmon-watch$(GOEXE)
 	@go build \
 		-trimpath \
 		-o bin/salmon-watch$(GOEXE) \
