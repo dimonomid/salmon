@@ -1,0 +1,12 @@
+@@ -73,3 +73,11 @@
++    # Deterministic incident used by the installed-binary E2E test.
++    - id: e2e
++      exec:
++        description: E2E incident
++        command: [sh, -c, "echo expected-e2e-incident; exit 1"]
++        pollInterval: 1s
++        pollIntervalWhenUnhealthy: 1s
++
+   # Messengers publish incident updates. Multiple messengers can be used at
+   # once, for example to log changes and expose the web UI.
+   messengers:
