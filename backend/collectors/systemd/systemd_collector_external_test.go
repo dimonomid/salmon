@@ -121,12 +121,13 @@ func TestCollectorResolvePolicyRequiresContinuousRecovery(t *testing.T) {
 					Result:           salmon.ItemStateWarning,
 					Resolve: &systemd.ConfigResolve{
 						After:  5 * time.Second,
-						States: []systemd.UnitState{"active", "inactive"},
+						States: []systemd.UnitState{"active", "inactive", systemd.UnitStateNotSentBySystemd},
 					},
 				},
 				{State: "active", Result: salmon.ItemStateOK},
 				{State: "inactive", Result: salmon.ItemStateOK},
 				{State: "activating", Result: salmon.ItemStateOK},
+				{State: systemd.UnitStateNotSentBySystemd, Result: salmon.ItemStateOK},
 				{Result: salmon.ItemStateWarning},
 			},
 		}}},
@@ -190,6 +191,18 @@ func TestCollectorResolvePolicyRequiresContinuousRecovery(t *testing.T) {
 	receiveSystemdUpdate(t, updates)
 	mockClock.Add(5 * time.Second)
 	assertSystemdItem(t, receiveSystemdUpdate(t, updates), "services.flapping.service", salmon.ItemStateOK)
+
+	// A disabled service can disappear from systemd after it is stopped. That
+	// stable absence must resolve its previous restart-loop incident too.
+	provider.updates <- systemdUnitUpdate("flapping.service", "activating", "auto-restart")
+	assertSystemdItem(t, receiveSystemdUpdate(t, updates), "services.flapping.service", salmon.ItemStateWarning)
+	provider.updates <- &systemd.UnitUpdate{Units: map[string]*systemd.Unit{"flapping.service": nil}}
+	provider.updates <- &systemd.UnitUpdate{Err: errors.New("missing-unit barrier")}
+	receiveSystemdUpdate(t, updates)
+	mockClock.Add(5 * time.Second)
+	missing := receiveSystemdUpdate(t, updates)
+	assertSystemdItem(t, missing, "services.flapping.service", salmon.ItemStateOK)
+	assertSystemdDetails(t, missing, "services.flapping.service", "Unit flapping.service was not reported by systemd")
 
 	// resolve is attached to the condition that starts an incident. A
 	// warning from the fallback condition therefore resolves immediately.

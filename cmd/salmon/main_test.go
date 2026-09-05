@@ -252,7 +252,7 @@ func TestLoadConfigUsesSystemdRuleFields(t *testing.T) {
         unitRules:
           - names: [one.service, two.service]
             conditions:
-              - {subStateContains: auto-restart, result: warning, resolve: {after: 5s, states: [active, inactive]}}
+              - {subStateContains: auto-restart, result: warning, resolve: {after: 5s, states: [active, inactive, not-sent-by-systemd]}}
 `)
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
@@ -267,7 +267,7 @@ func TestLoadConfigUsesSystemdRuleFields(t *testing.T) {
 		t.Fatalf("rule names = %#v", got)
 	}
 	condition := cfg.Core.Collectors[0].Systemd.UnitRules[0].Conditions[0]
-	if condition.SubStateContains != "auto-restart" || condition.Resolve == nil || condition.Resolve.After != 5*time.Second || len(condition.Resolve.States) != 2 || condition.Resolve.States[0] != "active" || condition.Resolve.States[1] != "inactive" || condition.Result != salmon.ItemStateWarning {
+	if condition.SubStateContains != "auto-restart" || condition.Resolve == nil || condition.Resolve.After != 5*time.Second || len(condition.Resolve.States) != 3 || condition.Resolve.States[0] != "active" || condition.Resolve.States[1] != "inactive" || condition.Resolve.States[2] != "not-sent-by-systemd" || condition.Result != salmon.ItemStateWarning {
 		t.Fatalf("rule condition = %#v", condition)
 	}
 }

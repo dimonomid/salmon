@@ -38,9 +38,13 @@ core:
               #
               # Once this condition starts an incident, resolve requires five
               # uninterrupted seconds in the stable states "active" or
-              # "inactive" before resolving it. Any other state resets the
-              # wait.
-              - {subStateContains: auto-restart, result: warning, resolve: {after: 5s, states: [active, inactive]}}
+              # "inactive", or while the stopped unit is no longer reported
+              # by systemd. Any other state resets the wait.
+              - {
+                  subStateContains: auto-restart,
+                  result: warning,
+                  resolve: {after: 5s, states: [active, inactive, not-sent-by-systemd]}
+                }
               - {state: active, result: ok}
               - {state: inactive, result: ok}
               - {state: activating, result: ok}
