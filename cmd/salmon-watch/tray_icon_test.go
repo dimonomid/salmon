@@ -161,6 +161,106 @@ func TestTrayStatusTitle(t *testing.T) {
 	}
 }
 
+// TestApplyIconPreservesUnchangedFlashCycle verifies that incident updates
+// which leave the rendered warning icon unchanged do not stop and recreate the
+// flash ticker, resetting its visible/transparent cadence.
+func TestApplyIconPreservesUnchangedFlashCycle(t *testing.T) {
+	originalTrayIcons := trayIcons
+	defer func() {
+		iconFlashMtx.Lock()
+		if iconFlashStop != nil {
+			close(iconFlashStop)
+			iconFlashStop = nil
+			iconFlashIcon = nil
+		}
+		iconFlashMtx.Unlock()
+		trayIcons = originalTrayIcons
+	}()
+
+	iconFlashMtx.Lock()
+	if iconFlashStop != nil {
+		close(iconFlashStop)
+	}
+	iconFlashStop = nil
+	iconFlashIcon = nil
+	iconFlashMtx.Unlock()
+
+	warningIcon := []byte("warning")
+	trayIcons = &iconCombiner{
+		icons: map[overallState][]byte{
+			overallStateOK:      []byte("ok"),
+			overallStateWarning: warningIcon,
+		},
+		transparent:   []byte("transparent"),
+		composedIcons: make(map[trayIconKey][]byte),
+	}
+	setIcon := func([]byte) {}
+
+	applyIconWithSetter(trayState{Alerting: overallStateWarning, AlertingCount: 1}, setIcon)
+	iconFlashMtx.Lock()
+	firstStop := iconFlashStop
+	iconFlashMtx.Unlock()
+	if firstStop == nil {
+		t.Fatal("warning icon did not start flashing")
+	}
+
+	applyIconWithSetter(trayState{Alerting: overallStateWarning, AlertingCount: 2}, setIcon)
+	iconFlashMtx.Lock()
+	secondStop := iconFlashStop
+	iconFlashMtx.Unlock()
+
+	if secondStop != firstStop {
+		t.Fatal("unchanged flashing icon restarted its flash cycle")
+	}
+	select {
+	case <-firstStop:
+		t.Fatal("unchanged flashing icon stopped its existing flash cycle")
+	default:
+	}
+}
+
+// TestFlashIconFirstTickHidesIcon verifies that the solid icon displayed by
+// applyIcon is followed by the transparent phase after one interval, rather
+// than being displayed redundantly for a second interval.
+func TestFlashIconFirstTickHidesIcon(t *testing.T) {
+	icon := []byte("warning")
+	transparentIcon := []byte("transparent")
+	stop := make(chan struct{})
+	changes := make(chan []byte, 1)
+	done := make(chan struct{})
+
+	iconFlashMtx.Lock()
+	iconFlashStop = stop
+	iconFlashMtx.Unlock()
+	defer func() {
+		close(stop)
+		<-done
+		iconFlashMtx.Lock()
+		iconFlashStop = nil
+		iconFlashIcon = nil
+		iconFlashMtx.Unlock()
+	}()
+
+	go func() {
+		flashIconAtInterval(icon, transparentIcon, stop, func(got []byte) {
+			select {
+			case changes <- got:
+			default:
+			}
+		}, time.Millisecond)
+		close(done)
+	}()
+
+	select {
+	case got := <-changes:
+		if !bytes.Equal(got, transparentIcon) {
+			t.Fatalf("first flash transition = %q, want transparent icon", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("first flash transition did not occur")
+	}
+}
+
 func TestOnIncidentUpdateDerivesTrayState(t *testing.T) {
 	var received []trayState
 	core := &salmonWatchCore{

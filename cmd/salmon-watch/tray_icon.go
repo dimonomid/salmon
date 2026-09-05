@@ -22,7 +22,13 @@ var (
 
 	iconFlashMtx  sync.Mutex
 	iconFlashStop chan struct{}
+	// iconFlashIcon is the non-transparent half of the active flash cycle.
+	// Keeping it lets applyIcon distinguish a real visual change from an
+	// incident update that only changes details or counts.
+	iconFlashIcon []byte
 )
+
+const iconFlashInterval = 500 * time.Millisecond
 
 // iconCombiner supplies the base tray icons, renders initialization progress,
 // and composes a snoozed overlay when needed. Its cache and lock are private so
@@ -123,26 +129,43 @@ func getOverallStateFromItem(item salmon.ItemWContext) overallState {
 }
 
 func applyIcon(state trayState) {
+	applyIconWithSetter(state, systray.SetIcon)
+}
+
+func applyIconWithSetter(state trayState, setIcon func([]byte)) {
 	icon := trayIcons.Icon(state)
+	flashing := state.Alerting != overallStateOK && state.Alerting != overallStateUnknown
 
 	iconFlashMtx.Lock()
+	// Reapplying the same flashing icon must not recreate its ticker. Doing so
+	// would immediately show the solid icon and restart the 500 ms interval,
+	// making frequent incident updates visibly interrupt the flash cadence.
+	if flashing && iconFlashStop != nil && bytes.Equal(iconFlashIcon, icon) {
+		iconFlashMtx.Unlock()
+		return
+	}
+
+	// A change between solid and flashing states, or between two different
+	// flashing icons, replaces the previous cycle.
 	if iconFlashStop != nil {
 		close(iconFlashStop)
 		iconFlashStop = nil
+		iconFlashIcon = nil
 	}
 
-	if state.Alerting == overallStateOK || state.Alerting == overallStateUnknown {
-		systray.SetIcon(icon)
+	if !flashing {
+		setIcon(icon)
 		iconFlashMtx.Unlock()
 		return
 	}
 
 	stop := make(chan struct{})
 	iconFlashStop = stop
-	systray.SetIcon(icon)
+	iconFlashIcon = icon
+	setIcon(icon)
 	iconFlashMtx.Unlock()
 
-	go flashIcon(icon, trayIcons.transparent, stop)
+	go flashIcon(icon, trayIcons.transparent, stop, setIcon)
 }
 
 // trayStatusTitle summarizes active and snoozed incidents in the tray menu.
@@ -321,11 +344,18 @@ func composeIcon(mainIcon, overlayIcon []byte) []byte {
 
 // flashIcon alternates a non-OK icon with a transparent icon until its state
 // is replaced by another call to applyIcon.
-func flashIcon(icon, transparentIcon []byte, stop <-chan struct{}) {
-	ticker := time.NewTicker(500 * time.Millisecond)
+func flashIcon(icon, transparentIcon []byte, stop <-chan struct{}, setIcon func([]byte)) {
+	flashIconAtInterval(icon, transparentIcon, stop, setIcon, iconFlashInterval)
+}
+
+func flashIconAtInterval(icon, transparentIcon []byte, stop <-chan struct{}, setIcon func([]byte), interval time.Duration) {
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	showIcon := false
+	// applyIcon has already displayed the solid icon, so the first tick must
+	// hide it. Starting this as false would redundantly display it again on the
+	// first tick and delay the first visible flash transition to two intervals.
+	showIcon := true
 	for {
 		select {
 		case <-ticker.C:
@@ -337,9 +367,9 @@ func flashIcon(icon, transparentIcon []byte, stop <-chan struct{}) {
 				return
 			}
 			if showIcon {
-				systray.SetIcon(icon)
+				setIcon(icon)
 			} else {
-				systray.SetIcon(transparentIcon)
+				setIcon(transparentIcon)
 			}
 			iconFlashMtx.Unlock()
 
