@@ -57,7 +57,7 @@ func newWatchRootCommand() *cobra.Command {
 	setupCommand := &cobra.Command{
 		Use:   "setup",
 		Short: "Perform the complete setup",
-		Long:  "Perform the complete setup by creating the default configuration and installing the desktop autostart entry. Run a setup subcommand to perform only one of these operations.",
+		Long:  "Perform the complete setup by creating the default configuration, desktop autostart entry, and application launcher. Run a setup subcommand to perform only one of these operations.",
 		Args:  cobra.NoArgs,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			if err := validateWatchSetupPlatform(runtime.GOOS); err != nil {
@@ -70,6 +70,9 @@ func newWatchRootCommand() *cobra.Command {
 				return err
 			}
 			if err := installWatchAutostart(cmd.OutOrStdout(), configFilename); err != nil {
+				return err
+			}
+			if err := installWatchLauncher(cmd.OutOrStdout(), configFilename); err != nil {
 				return err
 			}
 			return printWatchStartHint(cmd.OutOrStdout(), configFilename)
@@ -90,6 +93,14 @@ func newWatchRootCommand() *cobra.Command {
 			Args:  cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {
 				return installWatchAutostart(cmd.OutOrStdout(), configFilename)
+			},
+		},
+		&cobra.Command{
+			Use:   "install-launcher",
+			Short: "Install the desktop application-menu entry",
+			Args:  cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				return installWatchLauncher(cmd.OutOrStdout(), configFilename)
 			},
 		},
 	)

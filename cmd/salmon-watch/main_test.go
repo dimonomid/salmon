@@ -69,6 +69,20 @@ func TestWatchConfigPathsRespectXDGConfigHome(t *testing.T) {
 	}
 }
 
+func TestWatchLauncherPathRespectsXDGDataHome(t *testing.T) {
+	xdgDataHome := filepath.Join(t.TempDir(), "xdg-data")
+	t.Setenv("XDG_DATA_HOME", xdgDataHome)
+	t.Setenv("HOME", filepath.Join(t.TempDir(), "different-home"))
+
+	launcherPath, err := defaultWatchLauncherPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(xdgDataHome, "applications", "salmon-watch.desktop"); launcherPath != want {
+		t.Fatalf("default launcher path = %q, want %q", launcherPath, want)
+	}
+}
+
 func TestWatchSetupAllowsExplicitConfigWithoutUserConfigDirectory(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("HOME", "")
@@ -103,6 +117,7 @@ func TestWatchRunnableCommandsRejectPositionalArguments(t *testing.T) {
 		{"setup", "unexpected"},
 		{"setup", "create-config", "unexpected"},
 		{"setup", "install-autostart", "unexpected"},
+		{"setup", "install-launcher", "unexpected"},
 		{"generate-bearer-token"},
 		{"generate-bearer-token", "one", "two"},
 	} {
@@ -131,7 +146,7 @@ func TestWatchSetupOperationsDoNotPolluteTopLevelCommands(t *testing.T) {
 	for _, subcommand := range topLevelCommands["setup"].Commands() {
 		setupCommands[subcommand.Name()] = true
 	}
-	for _, want := range []string{"create-config", "install-autostart"} {
+	for _, want := range []string{"create-config", "install-autostart", "install-launcher"} {
 		if !setupCommands[want] {
 			t.Errorf("setup subcommands = %v, missing %q", setupCommands, want)
 		}

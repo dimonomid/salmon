@@ -125,7 +125,7 @@ func (app *watchApp) onReady() {
 func watchConfigReadError(configFilename string, err error) error {
 	defaultConfigFilename, defaultConfigErr := defaultWatchConfigPath()
 	if configNotFound(err) && defaultConfigErr == nil && configFilename == defaultConfigFilename {
-		return fmt.Errorf("failed to read config from %s: %w\n\nHint: Run the following command to create the default configuration and desktop-autostart entry:\n\n    %s setup\n", configFilename, err, setup.ShellArgument(os.Args[0]))
+		return fmt.Errorf("failed to read config from %s: %w\n\nHint: Run the following command to create the default configuration, desktop-autostart entry, and application launcher:\n\n    %s setup\n", configFilename, err, setup.ShellArgument(os.Args[0]))
 	}
 	return fmt.Errorf("failed to read config from %s: %w", configFilename, err)
 }

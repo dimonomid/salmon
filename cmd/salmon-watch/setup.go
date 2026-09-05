@@ -31,21 +31,7 @@ func initializeWatchConfig(output io.Writer, configFilename string) error {
 // installWatchAutostart creates the desktop autostart entry when absent and
 // reports the result to output.
 func installWatchAutostart(output io.Writer, configFilename string) error {
-	absoluteConfigFilename, err := filepath.Abs(configFilename)
-	if err != nil {
-		return fmt.Errorf("resolve config path: %w", err)
-	}
-	if _, err := loadConfig(absoluteConfigFilename); err != nil {
-		return fmt.Errorf("validate config at %s: %w", absoluteConfigFilename, err)
-	}
-	executable, err := setup.ExecutablePath()
-	if err != nil {
-		return err
-	}
-	entry, err := setup.RenderDesktopEntryTemplate("salmon-watch.desktop.tpl", string(mustEmbeddedAsset("assets/setup/salmon-watch.desktop.tpl")), struct {
-		Executable     string
-		ConfigFilename string
-	}{executable, absoluteConfigFilename})
+	entry, err := renderWatchDesktopEntry(configFilename)
 	if err != nil {
 		return err
 	}
@@ -60,13 +46,53 @@ func installWatchAutostart(output io.Writer, configFilename string) error {
 	return setup.ReportEnsureResult(output, "desktop autostart entry", autostartPath, created)
 }
 
+// installWatchLauncher creates the desktop application-menu entry when absent
+// and reports the result to output.
+func installWatchLauncher(output io.Writer, configFilename string) error {
+	entry, err := renderWatchDesktopEntry(configFilename)
+	if err != nil {
+		return err
+	}
+	launcherPath, err := defaultWatchLauncherPath()
+	if err != nil {
+		return err
+	}
+	created, err := setup.EnsureFile(launcherPath, entry)
+	if err != nil {
+		return err
+	}
+	return setup.ReportEnsureResult(output, "application launcher", launcherPath, created)
+}
+
+func renderWatchDesktopEntry(configFilename string) (string, error) {
+	absoluteConfigFilename, err := filepath.Abs(configFilename)
+	if err != nil {
+		return "", fmt.Errorf("resolve config path: %w", err)
+	}
+	if _, err := loadConfig(absoluteConfigFilename); err != nil {
+		return "", fmt.Errorf("validate config at %s: %w", absoluteConfigFilename, err)
+	}
+	executable, err := setup.ExecutablePath()
+	if err != nil {
+		return "", err
+	}
+	entry, err := setup.RenderDesktopEntryTemplate("salmon-watch.desktop.tpl", string(mustEmbeddedAsset("assets/setup/salmon-watch.desktop.tpl")), struct {
+		Executable     string
+		ConfigFilename string
+	}{executable, absoluteConfigFilename})
+	if err != nil {
+		return "", err
+	}
+	return entry, nil
+}
+
 // printWatchStartHint explains how to start Salmon Watch now.
 func printWatchStartHint(output io.Writer, configFilename string) error {
 	startCommand, err := watchStartCommand(configFilename)
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(output, "\nSalmon Watch is configured and installed for desktop autostart. To start it now, run:\n\n    %s\n", startCommand)
+	_, err = fmt.Fprintf(output, "\nSalmon Watch is configured and installed for desktop autostart and application-menu launch. To start it now, run:\n\n    %s\n", startCommand)
 	return err
 }
 
@@ -86,6 +112,15 @@ func defaultWatchAutostartPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(configHome, "autostart", "salmon-watch.desktop"), nil
+}
+
+// defaultWatchLauncherPath returns the XDG desktop application-menu path.
+func defaultWatchLauncherPath() (string, error) {
+	dataHome, err := userDataHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dataHome, "applications", "salmon-watch.desktop"), nil
 }
 
 // watchStartCommand returns a command that starts Salmon Watch with the given
@@ -111,4 +146,16 @@ func userConfigHome() (string, error) {
 		return "", fmt.Errorf("determine user configuration directory: %w", err)
 	}
 	return directory, nil
+}
+
+// userDataHome returns XDG_DATA_HOME or its standard per-user default.
+func userDataHome() (string, error) {
+	if directory := os.Getenv("XDG_DATA_HOME"); directory != "" {
+		return directory, nil
+	}
+	homeDirectory, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("determine user data directory: %w", err)
+	}
+	return filepath.Join(homeDirectory, ".local", "share"), nil
 }

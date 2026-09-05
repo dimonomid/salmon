@@ -121,7 +121,8 @@ machine health is as follows:
 sudo install -m 755 salmon /usr/local/bin/salmon
 sudo install -m 755 salmon-watch /usr/local/bin/salmon-watch
 
-# Let it create default configs, systemd service and desktop autostart entry.
+# Let it create default configs, systemd service, desktop autostart entry,
+# and application launcher.
 sudo salmon setup
 salmon-watch setup
 
