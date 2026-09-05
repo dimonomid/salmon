@@ -253,7 +253,11 @@ func (s *snoozeState) Snooze(key string, duration time.Duration, now time.Time) 
 	for existingKey, entry := range s.snoozed {
 		updated[existingKey] = entry
 	}
-	updated[key] = snoozeEntry{SnoozedUntil: now.Add(duration)}
+	// Snoozes are wall-clock deadlines. Strip Go's monotonic clock reading so
+	// time spent with the machine suspended still counts toward the duration.
+	// On systems where the monotonic clock pauses during suspend, retaining it
+	// would make the displayed deadline pass while the snooze remained active.
+	updated[key] = snoozeEntry{SnoozedUntil: now.Round(0).Add(duration)}
 
 	if err := s.writeLocked(updated); err != nil {
 		return err
