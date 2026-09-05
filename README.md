@@ -50,39 +50,32 @@ becomes "salmon".
 
 This project has two main parts:
 
-  * `salmon` runs on a machine, checks its health, and serves the current
-    incidents via simple read-only WebSocket API;
-  * `salmon-watch` connects to one or more `salmon`s, receives data from them,
-    shows a tray icon, sends desktop notifications, and provides a local web
-    UI.
+  * `salmon`, a background service: runs on a machine, checks its health, and
+    serves the current incidents via simple read-only WebSocket API;
+  * `salmon-watch`, a desktop app: connects to one or more `salmon`s, receives
+    data from them, shows a tray icon, sends desktop notifications, and
+    provides a local web UI.
 
 So `salmon` is a server (which can run locally too), and `salmon-watch` is a
 client which runs on e.g. a laptop. If we have a laptop and two servers, a
 typical setup looks like this:
 
-```
-  ┌─────────────────────────────────┐
-  │             Laptop              │
-  │                                 │
-  │  ┌────────┐    ┌──────────────┐ │
-  │  │ salmon │───▶│ salmon-watch │ │
-  │  └────────┘    └──────────────┘ │
-  │                    ▲      ▲     │
-  └────────────────────│──────│─────┘
-  ┌──────────────┐     │      │
-  │   Server 1   │     │      │
-  │              │     │      │
-  │  ┌────────┐  │     │      │
-  │  │ salmon │──┼─────┘      │
-  │  └────────┘  │            │
-  └──────────────┘            │
-  ┌──────────────┐            │
-  │   Server 2   │            │
-  │              │            │
-  │  ┌────────┐  │            │
-  │  │ salmon │──┼────────────┘
-  │  └────────┘  │
-  └──────────────┘
+```mermaid
+flowchart LR
+    subgraph laptop["Laptop"]
+        localSalmon["salmon"] --> salmonWatch["salmon-watch"]
+    end
+
+    subgraph server1["Server 1"]
+        server1Salmon["salmon"]
+    end
+
+    subgraph server2["Server 2"]
+        server2Salmon["salmon"]
+    end
+
+    server1Salmon --> salmonWatch
+    server2Salmon --> salmonWatch
 ```
 
 Salmon reports incidents, each of them has:
