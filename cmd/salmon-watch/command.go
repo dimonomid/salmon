@@ -15,13 +15,23 @@ func newWatchRootCommand() *cobra.Command {
 	var configFilename string
 	var logLevel string
 	var bearerTokenOutputFilename string
+	defaultConfigFilename, defaultConfigErr := defaultWatchConfigPath()
+	requireConfigFilename := func(cmd *cobra.Command) error {
+		if defaultConfigErr != nil && !cmd.Flags().Changed("config") {
+			return defaultConfigErr
+		}
+		return nil
+	}
 	root := &cobra.Command{
 		Use:          "salmon-watch",
 		Short:        "Show Salmon status in the desktop tray",
 		Version:      version.FullDescription("Salmon Watch"),
 		SilenceUsage: true,
 		Args:         cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := requireConfigFilename(cmd); err != nil {
+				return err
+			}
 			minLogLevel, err := logs.ParseLogLevel(logLevel)
 			if err != nil {
 				return err
@@ -41,15 +51,20 @@ func newWatchRootCommand() *cobra.Command {
 		},
 	}
 	root.SetVersionTemplate("{{.Version}}")
-	root.PersistentFlags().StringVar(&configFilename, "config", defaultWatchConfigPath(), "Config filename")
+	root.PersistentFlags().StringVar(&configFilename, "config", defaultConfigFilename, "Config filename")
 	root.Flags().StringVar(&logLevel, "log-level", "info", "Minimum log level (debug, info, warning, or error)")
 
 	setupCommand := &cobra.Command{
-		Use:               "setup",
-		Short:             "Perform the complete setup",
-		Long:              "Perform the complete setup by creating the default configuration and installing the desktop autostart entry. Run a setup subcommand to perform only one of these operations.",
-		Args:              cobra.NoArgs,
-		PersistentPreRunE: func(_ *cobra.Command, _ []string) error { return validateWatchSetupPlatform(runtime.GOOS) },
+		Use:   "setup",
+		Short: "Perform the complete setup",
+		Long:  "Perform the complete setup by creating the default configuration and installing the desktop autostart entry. Run a setup subcommand to perform only one of these operations.",
+		Args:  cobra.NoArgs,
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			if err := validateWatchSetupPlatform(runtime.GOOS); err != nil {
+				return err
+			}
+			return requireConfigFilename(cmd)
+		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := initializeWatchConfig(cmd.OutOrStdout(), configFilename); err != nil {
 				return err
@@ -84,6 +99,9 @@ func newWatchRootCommand() *cobra.Command {
 		Short: "Generate a bearer token for one Salmon server",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireConfigFilename(cmd); err != nil {
+				return err
+			}
 			return generateBearerToken(cmd.OutOrStdout(), configFilename, args[0], bearerTokenOutputFilename)
 		},
 	}

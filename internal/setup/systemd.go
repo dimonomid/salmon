@@ -2,6 +2,8 @@ package setup
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"text/template"
@@ -28,6 +30,15 @@ func systemdUnitArgument(argument string) string {
 // systemd and enables it. The caller supplies CmdRunner so this behavior is
 // testable without a real manager.
 func InstallSystemdService(unitPath, unitName, contents string, run CmdRunner) (bool, error) {
+	unitDirectory := filepath.Dir(unitPath)
+	info, err := os.Stat(unitDirectory)
+	if err != nil {
+		return false, fmt.Errorf("access systemd unit directory %s: %w", unitDirectory, err)
+	}
+	if !info.IsDir() {
+		return false, fmt.Errorf("systemd unit directory %s is not a directory", unitDirectory)
+	}
+
 	created, err := EnsureFile(unitPath, contents)
 	if err != nil {
 		return false, err

@@ -49,11 +49,15 @@ func installWatchAutostart(output io.Writer, configFilename string) error {
 	if err != nil {
 		return err
 	}
-	created, err := setup.EnsureFile(defaultWatchAutostartPath(), entry)
+	autostartPath, err := defaultWatchAutostartPath()
 	if err != nil {
 		return err
 	}
-	return setup.ReportEnsureResult(output, "desktop autostart entry", defaultWatchAutostartPath(), created)
+	created, err := setup.EnsureFile(autostartPath, entry)
+	if err != nil {
+		return err
+	}
+	return setup.ReportEnsureResult(output, "desktop autostart entry", autostartPath, created)
 }
 
 // printWatchStartHint explains how to start Salmon Watch now.
@@ -67,20 +71,29 @@ func printWatchStartHint(output io.Writer, configFilename string) error {
 }
 
 // defaultWatchConfigPath returns the default XDG configuration path.
-func defaultWatchConfigPath() string {
-	return filepath.Join(userConfigHome(), "salmon-watch", "salmon-watch.yml")
+func defaultWatchConfigPath() (string, error) {
+	configHome, err := userConfigHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configHome, "salmon-watch", "salmon-watch.yml"), nil
 }
 
 // defaultWatchAutostartPath returns the default XDG desktop-autostart path.
-func defaultWatchAutostartPath() string {
-	return filepath.Join(userConfigHome(), "autostart", "salmon-watch.desktop")
+func defaultWatchAutostartPath() (string, error) {
+	configHome, err := userConfigHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configHome, "autostart", "salmon-watch.desktop"), nil
 }
 
 // watchStartCommand returns a command that starts Salmon Watch with the given
 // configuration, resolving custom paths so the command works from any
 // directory.
 func watchStartCommand(configFilename string) (string, error) {
-	if configFilename == defaultWatchConfigPath() {
+	defaultConfigFilename, err := defaultWatchConfigPath()
+	if err == nil && configFilename == defaultConfigFilename {
 		return setup.ShellArgument(os.Args[0]), nil
 	}
 	absoluteConfigFilename, err := filepath.Abs(configFilename)
@@ -90,14 +103,12 @@ func watchStartCommand(configFilename string) (string, error) {
 	return fmt.Sprintf("%s --config %s", setup.ShellArgument(os.Args[0]), setup.ShellArgument(absoluteConfigFilename)), nil
 }
 
-// userConfigHome returns XDG_CONFIG_HOME or fall back to $HOME/.config
-func userConfigHome() string {
-	if directory := os.Getenv("XDG_CONFIG_HOME"); directory != "" {
-		return directory
-	}
-	homeDir, err := os.UserHomeDir()
+// userConfigHome returns the platform's user configuration directory. It does
+// not guess a relative path when the environment cannot identify one.
+func userConfigHome() (string, error) {
+	directory, err := os.UserConfigDir()
 	if err != nil {
-		return ".config"
+		return "", fmt.Errorf("determine user configuration directory: %w", err)
 	}
-	return filepath.Join(homeDir, ".config")
+	return directory, nil
 }

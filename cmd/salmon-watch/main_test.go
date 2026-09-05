@@ -35,6 +35,56 @@ func TestWatchSetupCreateConfigCreatesConfig(t *testing.T) {
 	}
 }
 
+func TestWatchSetupDoesNotFallBackToRelativeConfigDirectory(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "")
+	command := newWatchRootCommand()
+	command.SetOut(&bytes.Buffer{})
+	command.SetErr(&bytes.Buffer{})
+	command.SetArgs([]string{"setup", "create-config"})
+	if err := command.Execute(); err == nil || !strings.Contains(err.Error(), "determine user configuration directory") {
+		t.Fatalf("setup error = %v, want user-configuration-directory error", err)
+	}
+}
+
+func TestWatchConfigPathsRespectXDGConfigHome(t *testing.T) {
+	xdgConfigHome := filepath.Join(t.TempDir(), "xdg-config")
+	t.Setenv("XDG_CONFIG_HOME", xdgConfigHome)
+	t.Setenv("HOME", filepath.Join(t.TempDir(), "different-home"))
+
+	configPath, err := defaultWatchConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(xdgConfigHome, "salmon-watch", "salmon-watch.yml"); configPath != want {
+		t.Fatalf("default config path = %q, want %q", configPath, want)
+	}
+
+	autostartPath, err := defaultWatchAutostartPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(xdgConfigHome, "autostart", "salmon-watch.desktop"); autostartPath != want {
+		t.Fatalf("default autostart path = %q, want %q", autostartPath, want)
+	}
+}
+
+func TestWatchSetupAllowsExplicitConfigWithoutUserConfigDirectory(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "")
+	path := filepath.Join(t.TempDir(), "salmon-watch.yml")
+	command := newWatchRootCommand()
+	command.SetOut(&bytes.Buffer{})
+	command.SetErr(&bytes.Buffer{})
+	command.SetArgs([]string{"setup", "create-config", "--config", path})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("explicit configuration was not created: %v", err)
+	}
+}
+
 func TestWatchSetupPlatformValidation(t *testing.T) {
 	if err := validateWatchSetupPlatform("linux"); err != nil {
 		t.Fatalf("Linux setup rejected: %v", err)
@@ -118,7 +168,11 @@ func TestWatchVersionFlagPrintsBuildInformation(t *testing.T) {
 }
 
 func TestWatchStartCommand(t *testing.T) {
-	got, err := watchStartCommand(defaultWatchConfigPath())
+	defaultConfigFilename, err := defaultWatchConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := watchStartCommand(defaultConfigFilename)
 	if err != nil {
 		t.Fatal(err)
 	}
