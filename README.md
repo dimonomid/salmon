@@ -1,8 +1,10 @@
-# Salmon: alerts and a tray icon for failing systemd services and anything else
+# Salmon: desktop alerts and a tray icon for failing systemd services and anything else
 
-Salmon is a relatively simple utility which monitors the health of your local
+Salmon is a simple monitoring utility which checks the health of your local
 machine and/or remote server(s), and helps you notice timely if something is
 wrong.
+
+![Salmon demo](https://dmitryfrank.com/_media/projects/salmon/salmon_demo.gif)
 
 ## Project history and naming
 
