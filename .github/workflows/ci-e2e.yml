@@ -96,7 +96,7 @@ jobs:
   salmon-watch:
     name: salmon-watch E2E (Linux)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -129,7 +129,8 @@ jobs:
 
       - name: Build binaries and install Salmon Watch
         run: |
-          make salmon salmon-watch
+          make salmon
+          bash .github/build-salmon-watch-linux.sh
           if readelf -lW ./bin/salmon | grep '[[:space:]]INTERP[[:space:]]' >/dev/null; then
             echo "bin/salmon is dynamically linked" >&2
             exit 1
