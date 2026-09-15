@@ -34,6 +34,10 @@ jobs:
       - name: Build binaries and install Salmon Watch Legacy
         run: |
           make salmon salmon-watch-legacy
+          if readelf -lW ./bin/salmon | grep '[[:space:]]INTERP[[:space:]]' >/dev/null; then
+            echo "bin/salmon is dynamically linked" >&2
+            exit 1
+          fi
           sudo make install-salmon-watch-legacy
 
       - name: Set up and start Salmon
@@ -126,6 +130,10 @@ jobs:
       - name: Build binaries and install Salmon Watch
         run: |
           make salmon salmon-watch
+          if readelf -lW ./bin/salmon | grep '[[:space:]]INTERP[[:space:]]' >/dev/null; then
+            echo "bin/salmon is dynamically linked" >&2
+            exit 1
+          fi
           sudo make install-salmon-watch
 
       - name: Set up and start Salmon

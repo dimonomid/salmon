@@ -31,7 +31,9 @@ generate:
 .PHONY: salmon
 salmon: generate
 	@echo Building bin/salmon$(GOEXE)
-	@go build \
+	@# Keep the server portable across Linux distributions instead of linking it
+	@# to the glibc version provided by the build host.
+	@CGO_ENABLED=0 go build \
 		-trimpath \
 		-o bin/salmon$(GOEXE) \
 		-ldflags "$(LDFLAGS)" \
